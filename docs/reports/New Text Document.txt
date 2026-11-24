@@ -1,0 +1,807 @@
+# التوثيق التقني الكامل لمشروع SkyMate
+
+## منصة تخطيط السفر الذكية والمساعد السياحي
+
+**الإصدار:** 1.0  
+**تاريخ الإعداد:** 17 نوفمبر 2026  
+**نطاق التوثيق:** التنفيذ الموجود في مستودع المشروع عند تاريخ الإعداد
+
+---
+
+## تمهيد ونطاق التوثيق
+
+يشرح هذا المستند ما يحتويه حل SkyMate فعليًا: بنية Backend المكتوبة بـ ASP.NET Core Web API و.NET 10، نموذج البيانات الحالي كما يصفه EF Core والمigrations، مسارات API، المصادقة، خدمة الرحلات للقراءة، إدارة سجلات محادثة chatbot، التنظيف الدوري، والاختبارات الموجودة. الغرض منه أن يساعد طالب علوم الحاسب على تتبع الطلب من HTTP حتى قاعدة البيانات وفهم حدود كل جزء.
+
+تصف أسماء المشروع وفكرة التخرج هدفًا أوسع هو تخطيط السفر ومساعدة المسافر. لكن ملفات الحل الموجودة تضم أربعة مشاريع .NET ومشروع اختبارات واحدًا فقط؛ لم يُعثر على مشروع React أو Flutter، أو عميل لمزود AI، أو خدمة تولّد ردودًا للمساعد. لذلك يشرح المستند هذه العناصر بوصفها خارج التنفيذ المتاح حاليًا، ولا يعرضها كميزات منجزة. كما أن وجود migrations لا يثبت أنها طُبقت على قاعدة SQL Server بعينها. لم يُتحقق من قاعدة حية في أثناء إعداد هذا المستند.
+
+تعني عبارة **«موجود في المصدر»** أن السلوك يظهر في الملفات الحالية. وتعني **«غير متحقق منه»** أن الكود لا يكفي لإثبات حالة تشغيلية خارج المستودع، مثل تطبيق migration على قاعدة الإنتاج. المسارات المذكورة نسبية إلى مجلد المشروع `D:\Skymate v1`.
+
+## المحتويات
+
+1. [مقدمة المشروع](#الفصل-1-مقدمة-المشروع)
+2. [معمارية النظام](#الفصل-2-معمارية-النظام)
+3. [الحل وبنية المجلدات](#الفصل-3-الحل-وبنية-المجلدات)
+4. [تصميم قاعدة البيانات وERD](#الفصل-4-تصميم-قاعدة-البيانات-وerd)
+5. [Entity Framework Core وتنفيذ قاعدة البيانات](#الفصل-5-entity-framework-core-وتنفيذ-قاعدة-البيانات)
+6. [المصادقة والتفويض](#الفصل-6-المصادقة-والتفويض)
+7. [توثيق API](#الفصل-7-توثيق-api)
+8. [إدارة الرحلات وخطة الأيام](#الفصل-8-إدارة-الرحلات-وخطة-الأيام)
+9. [Chatbot وإدارة المحادثات](#الفصل-9-chatbot-وإدارة-المحادثات)
+10. [الإعداد وبدء التطبيق](#الفصل-10-الإعداد-وبدء-التطبيق)
+11. [الأخطاء والتحقق من البيانات](#الفصل-11-الأخطاء-والتحقق-من-البيانات)
+12. [الاختبارات](#الفصل-12-الاختبارات)
+13. [الأمان](#الفصل-13-الأمان)
+14. [الميزات المنفذة والميزات المنتظرة](#الفصل-14-الميزات-المنفذة-والميزات-المنتظرة)
+15. [القرارات التقنية المهمة](#الفصل-15-القرارات-التقنية-المهمة)
+16. [القيود والمشكلات المعروفة](#الفصل-16-القيود-والمشكلات-المعروفة)
+17. [تشغيل Backend محليًا](#الفصل-17-تشغيل-backend-محليًا)
+18. [مراحل التطوير التالية](#الفصل-18-مراحل-التطوير-التالية)
+19. [مسرد المصطلحات](#الفصل-19-مسرد-المصطلحات)
+
+---
+
+# الفصل 1: مقدمة المشروع
+
+## 1.1 ما هو SkyMate؟
+
+SkyMate هو مشروع Backend لمنصة سفر. يوفّر API لمعلومات المستخدم والحساب، وقراءة الرحلات التي يملكها المستخدم، وحفظ محادثات مرتبطة برحلاته النشطة. نموذج المجال وقاعدة البيانات يصفان أيضًا التفضيلات والاهتمامات وأيام الرحلة والأنشطة، لكن هذا لا يعني أن لكل هذه البيانات مسارات API لإدارتها.
+
+في النسخة الحالية، يعمل ASP.NET Core Web API كواجهة HTTP مشتركة نظريًا لأي عميل يستطيع إرسال JSON وJWT. لا يوجد في الحل الحالي مشروع عميل Web أو Mobile يمكن تشغيله أو فحص تكامله. كذلك لا توجد خدمة AI تنتج إجابة تلقائية؛ مسارات المحادثة تحفظ نص المستخدم وتعيده.
+
+## 1.2 المشكلة والأهداف
+
+الفكرة المستهدفة هي تجميع بيانات الرحلة وخطتها وتفضيلات المسافر ومحادثته في مكان واحد. التنفيذ المتاح يضع أساسًا تقنيًا لهذه الفكرة عبر:
+
+- إنشاء حساب مستخدم وتسجيل الدخول بواسطة ASP.NET Core Identity وJWT.
+- ربط بيانات الرحلة بالمستخدم، وعزل قراءتها بحسب المالك.
+- تمثيل اهتمامات الرحلة وخطة اليوم والأنشطة في نموذج EF Core.
+- حفظ محادثات نصية مرتبطة برحلة ومستخدم، مع التحقق من الملكية وفترة الرحلة.
+- حذف محادثات الرحلة ورسائلها بعد وصول تاريخ نهاية الرحلة.
+- فرض قيود أساسية في SQL Server ومراجعة بعض قواعد الجدول الزمني قبل الحفظ.
+
+هذه أهداف يساندها الكود الموجود بدرجات مختلفة، وليست قائمة بميزات مكتملة في تطبيق المستخدم.
+
+## 1.3 المستخدمون والمنصات والنطاق
+
+المستخدم الظاهر في الكود هو صاحب حساب بدور `User`. يوجد أيضًا دور `Admin` يتم إنشاؤه عند بدء التطبيق، لكن لا توجد وحدة تحكم إدارية أو نقاط نهاية مقيدة بهذا الدور في الحل الحالي. نطاق التنفيذ الموثق هنا هو Backend فقط. يحدد `SkyMate.API/Properties/launchSettings.json` ملفي تشغيل Development على `http://localhost:5210` و`https://localhost:7280`، ولا يثبت ذلك وجود نشر خارجي.
+
+لم يُعثر في `SkyMate.slnx` أو ملفات المشروع على React أو Flutter. لذلك دعم هذين العميلين **غير متحقق منه** من هذا المستودع. كما أن مصادر AI ومفاتيحها وتكاملها غير موجودة في المسار التنفيذي الحالي.
+
+## 1.4 الميزات الحالية وحدود النطاق
+
+الميزات التي لها مسار تنفيذي واضح هي التسجيل، تسجيل الدخول، ملف المستخدم الحالي، استعلام الرحلات المملوكة للمستخدم، CRUD محدود للمحادثات والرسائل (إنشاء/قراءة/حذف محادثة، وإضافة/قراءة رسائل المستخدم)، وتنظيف محادثات الرحلات المنتهية. أما إنشاء رحلة أو تعديلها أو حذفها، وإدارة خطة الأيام والأنشطة والتفضيلات من خلال API، وتوليد خطة آلية، وإنتاج رد AI، واستعادة كلمة المرور أو تأكيد البريد، فهي غير مكشوفة في نقاط النهاية الحالية.
+
+## 1.5 مصطلحات تقنية باختصار
+
+- **Backend:** الجزء الذي يستقبل الطلبات، يطبق قواعد الوصول، وينفذ التخزين أو المنطق.
+- **API:** عقد HTTP تستخدمه البرامج لقراءة البيانات أو تغييرها.
+- **Entity:** كائن يمثل بيانات تُخزن في جدول، مثل `Trip`.
+- **DTO:** شكل البيانات الذي يقبله API أو يعيده دون كشف كيان قاعدة البيانات كاملًا.
+- **JWT:** رمز موقّع يثبت هوية صاحب الطلب لفترة محددة.
+- **Migration:** وصف متسلسل لتغيير بنية قاعدة البيانات.
+
+# الفصل 2: معمارية النظام
+
+## 2.1 نمط المعمارية
+
+الحل مقسّم إلى طبقات ومشاريع، مع فصل الكيانات وعقود الخدمات عن تفاصيل التخزين والويب. `SkyMate.Domain` لا يعتمد على بقية مشاريع الحل. `SkyMate.Application` يعتمد على Domain ويعرّف بعض الواجهات وDTOs. `SkyMate.Infrastructure` يطبّق التخزين وخدمات الرحلات والمحادثة وIdentity/JWT ويعتمد على Application وDomain. `SkyMate.API` يعرّف Controllers وDTOs الخاصة بـ HTTP وتهيئة المضيف، ويعتمد على Application وInfrastructure.
+
+هذا الفصل موجود على مستوى المشاريع، لكن التطبيق ليس فصلًا كاملًا بأسلوب Clean Architecture: بعض الخدمات المنفذة موجودة في Infrastructure وتتصل مباشرة بـ `AppDbContext`، والـ API يستدعي عقودًا في Application ثم تأتي تطبيقاتها من Infrastructure عبر Dependency Injection.
+
+## 2.2 مخطط الطلب ومكونات الحل
+
+```text
+عميل HTTP يرسل JSON وBearer JWT
+              │
+              ▼
+SkyMate.API: Middleware ثم Controller وDTO تحقق
+              │ يعتمد على واجهات Application
+              ▼
+SkyMate.Infrastructure: تنفيذ الخدمة وIdentity وJWT
+              │                         │
+              ▼                         └── مزود AI خارجي: لا يوجد تكامل في المصدر الحالي
+AppDbContext / EF Core
+              │
+              ▼
+SQL Server (وجهة الإعداد الافتراضية؛ حالة قاعدة حية غير متحقق منها)
+```
+
+مسار طلب نموذجي لقراءة رحلة هو: يطابق ASP.NET Core المسار، ثم يمر الطلب عبر `UseAuthentication` و`UseAuthorization`، ثم يستدعي `TripsController`. يأخذ Controller رقم المستخدم من claim `sub` في JWT ولا يقبله من جسم الطلب. بعد ذلك يستدعي `ITripReadService`، وتنفذ `TripReadService` استعلام LINQ بـ `UserId` داخل قاعدة البيانات، وتحول النتيجة إلى `TripSummary` ثم `TripResponse`. يعيد API JSON بحروف camelCase.
+
+في المحادثات، ينفذ `ChatbotConversationsController` فحص claim نفسه، ثم يستدعي `IChatbotConversationService`. يتأكد `ChatbotConversationService` من ملكية المستخدم ومن أن تاريخ الرحلة يقع ضمن الفترة النشطة، ثم يقرأ أو يكتب في `AppDbContext`. لا توجد خطوة اتصال بمزود لغوي بعد حفظ رسالة المستخدم.
+
+## 2.3 المشاريع ومسؤوليتها واعتمادها
+
+| المشروع | المسؤولية الفعلية | الاعتماديات الأساسية |
+|---|---|---|
+| `SkyMate.Domain` | الكيانات `Trip` و`Activity` وغيرها، وEnums المجال | لا يعتمد على مشاريع الحل |
+| `SkyMate.Application` | عقود مثل `ITripReadService` و`IChatbotConversationService`، وDTOs الداخلية | `SkyMate.Domain` |
+| `SkyMate.Infrastructure` | `AppDbContext`، إعدادات EF، migrations، مستودع عام، الخدمات، Identity، JWT والتنظيف | `SkyMate.Application` و`SkyMate.Domain`، وEF Core/SQL Server/Identity |
+| `SkyMate.API` | تشغيل المضيف، Controllers، DTOs HTTP، Swagger، middleware وتهيئة الخدمات | `SkyMate.Application` و`SkyMate.Infrastructure`، وASP.NET Core |
+| `tests/SkyMate.UnitTests` | اختبارات xUnit للمصادقة والتخزين وLifecycle المحادثات | API وInfrastructure وSQLite للاختبارات |
+
+## 2.4 Dependency Injection وفصل المسؤوليات
+
+يسجل `Program.cs` خدمات الويب وSwagger والمصادقة والتفويض وBackground Service. يستدعي `DependencyInjection.AddInfrastructure` لتسجيل `AppDbContext` كخدمة scoped مع `UseSqlServer`، وIdentity، و`IGenericRepository<>`، و`IUnitOfWork`، و`IJwtTokenService`، و`ITripReadService`، و`IChatbotConversationService`. تعني scoped أن نسخة `DbContext` مشتركة ضمن نطاق الطلب أو النطاق الذي ينشئه العامل الخلفي، وليست نسخة واحدة لكل التطبيق.
+
+واجهات `IGenericRepository<T>` و`IUnitOfWork` موجودة ومسجلة، لكن مسارات الرحلات والمحادثات الحالية تستخدم `AppDbContext` مباشرة. لذلك لا ينبغي وصف كل عمليات البيانات بأنها تمر فعلًا من خلال Repository/Unit of Work.
+
+## 2.5 العملاء ومزود AI
+
+يتعامل API مع HTTP وJSON ولا يعتمد على نوع الواجهة. الإعداد يسمح بقائمة `Cors:AllowedOrigins`؛ القيمة المصدرية الحالية فارغة، لذا يحتاج متصفح يعمل من أصل مختلف إلى ضبط مناسب في بيئته. العميل المحمول لا يحتاج عادةً إلى CORS الخاص بالمتصفح. لا توجد حاليًا مكتبة مزود AI أو إعدادات API keys أو عميل HTTP لذلك المزود في ملفات المشاريع المفحوصة. واجهات chatbot الحالية واجهات تخزين ومحادثة فقط.
+
+# الفصل 3: الحل وبنية المجلدات
+
+## 3.1 شجرة الحل
+
+```text
+SkyMate.slnx
+├── SkyMate.Domain
+│   ├── Entities
+│   └── Enums
+├── SkyMate.Application
+│   ├── DTOs (Auth, Chatbot, Trips)
+│   └── Interfaces (Authentication, Chatbot, Persistence, Travel)
+├── SkyMate.Infrastructure
+│   ├── Authentication
+│   ├── BackgroundServices
+│   ├── Identity
+│   ├── Persistence
+│   │   ├── Configurations
+│   │   ├── Migrations
+│   │   └── Repositories
+│   └── Services
+├── SkyMate.API
+│   ├── BackgroundServices
+│   ├── Controllers
+│   ├── DTOs (Auth, Chatbot, Trips)
+│   ├── Security
+│   └── Swagger
+└── tests/SkyMate.UnitTests
+    ├── Authentication
+    ├── Chatbot
+    └── Persistence
+```
+
+كل المشاريع تستهدف `net10.0` مع Nullable Reference Types وImplicit Usings. يحتوي `SkyMate.Infrastructure.csproj` على `Microsoft.EntityFrameworkCore.SqlServer` وIdentity EF Core 10.0.14 وEF Design 10.0.14، ويستخدم `System.IdentityModel.Tokens.Jwt` 8.23.0. يستخدم API `Microsoft.AspNetCore.Authentication.JwtBearer` 10.0.14 وSwashbuckle 10.3.1. يستخدم الاختبار xUnit 2.9.3 و`Microsoft.AspNetCore.Mvc.Testing` 10.0.14 وEF Core SQLite 10.0.14.
+
+## 3.2 Domain: الكيانات والـ Enums
+
+| النوع | الغرض والعلاقة |
+|---|---|
+| `ApplicationUser` في Infrastructure Identity | يوسّع `IdentityUser<int>` ببيانات الاسم والتواريخ، ويرتبط بالتفضيلات والرحلات. ليس في Domain لأن تعريفه يرث من Identity. |
+| `UserPreference` | تفضيل عام للمستخدم فيه `Type` و`Interest` و`Pace` اختياري. |
+| `Interest` | قيمة اهتمام مشتركة قابلة لإعادة الاستخدام بين رحلات متعددة. الاسم يتم قص المسافات عند تعيينه. |
+| `Trip` | مالك، وجهة، ميزانية، عملة، مدة، عدد مسافرين، تاريخ بداية وإيقاع الخطة؛ يجمع الأيام والاهتمامات والمحادثات. |
+| `TripDay` | يوم واحد في خطة رحلة، وله رقم وتاريخ واسم يوم، ويجمع الأنشطة. |
+| `Activity` | نشاط في يوم محدد، مع نوع وتكلفة وأساس حسابها وترتيب ووقت اختياري. |
+| `TripInterest` | كيان ربط بين رحلة واهتمام، ومفتاحه مركب من الاثنين. |
+| `AiConversation` | محادثة يملكها مستخدم ومربوطة برحلة واحدة؛ تجمع رسائلها. |
+| `AiConversationMessage` | رسالة بدور `User` أو `Assistant` ومحتوى ونقطة إنشاء. |
+| `Pace` | `Relaxed` أو `Balanced` أو `Packed`، ويستخدم في Trip. |
+| `ActivityType` | نوع النشاط: مشاهدة، طعام، تسوق، طبيعة، ثقافة، مغامرة، نقل، إقامة أو غير ذلك. |
+| `CostBasis` | `PerPerson` أو `PerGroup` أو `Free`. |
+| `ConversationRole` | `User` أو `Assistant`. |
+
+## 3.3 Application: الواجهات وDTOs
+
+`ITripReadService` يعرّف جلب الرحلات وقائمة رحلات المستخدم. `IChatbotConversationService` يعرّف إنشاء المحادثة وقراءتها وحذفها وإضافة/قراءة الرسائل مع userId صريح وفحص الرحلة النشطة. `IJwtTokenService` يعرّف إنشاء access token. `IGenericRepository<T>` يعرّف قراءة/إضافة/تحديث/حذف كيان عام، و`IUnitOfWork` يعرّف حفظ التغييرات. DTOs الداخلية هي `TripSummary` و`ConversationSummary` و`ConversationMessageSummary` و`AccessTokenResult`؛ تتجنب إعادة كائنات المجال كاملة من الخدمات.
+
+## 3.4 Infrastructure: التفاصيل التنفيذية
+
+- `Persistence/AppDbContext.cs`: Identity DbContext، وDbSets للكيانات الثمانية، وتطبيق الإعدادات، والتحقق من تداخل أوقات الأنشطة قبل الحفظ.
+- `Persistence/Configurations`: ملف `IEntityTypeConfiguration<T>` لكل كيان تقريبًا لتحديد الأطوال والفهارس والعلاقات وقيود SQL.
+- `Persistence/Migrations`: ثلاث migrations وملف model snapshot. Designer لكل migration يضم metadata مولدة.
+- `Persistence/Repositories/GenericRepository.cs` و`Persistence/UnitOfWork.cs`: تنفيذ العقود العامة.
+- `Services/TripReadService.cs`: استعلامات قراءة الرحلات مع شرط المالك وإسقاط إلى `TripSummary`.
+- `Services/ChatbotConversationService.cs`: يفرض ownership ونافذة نشاط الرحلة في عمليات المحادثة.
+- `Authentication/JwtOptions.cs` و`JwtTokenService.cs`: التحقق من إعدادات JWT وإصدارها.
+- `Identity/ApplicationUser.cs` و`IdentityRoleSeeder.cs`: ملف مستخدم موسع وزرع أدوار `User` و`Admin`.
+- `BackgroundServices/ExpiredTripConversationCleanup.cs`: حذف محادثات رحلات انتهت.
+- `DependencyInjection.cs`: نقطة تسجيل خدمات Infrastructure وIdentity وSQL Server.
+
+## 3.5 API: HTTP والعقود
+
+`Program.cs` يبني المضيف ويرتب الخدمات وmiddleware. توجد ثلاث Controllers: `AuthController` للمستخدم والحساب، `TripsController` لقراءة الرحلات، و`ChatbotConversationsController` للمحادثات والرسائل. DTOs في `SkyMate.API/DTOs` تحدد العقود التي تصل عبر JSON. `ClaimsPrincipalExtensions` يقرأ `sub` كرقم مستخدم، و`AuthorizeOperationFilter` يضيف Bearer security إلى عمليات Swagger المحمية.
+
+ملفات التشغيل `Properties/launchSettings.json` للتطوير المحلي، و`appsettings.json` لقيم الإعداد غير السرية. `appsettings.Development.json` يغير مستويات logging فقط. لم يُعثر على ملف README في مجموعة ملفات الحل المفحوصة؛ الوثائق السابقة الموجودة في `docs/` لا تُستخدم بديلًا عن قراءة الكود الحالي.
+
+# الفصل 4: تصميم قاعدة البيانات وERD
+
+## 4.1 حدود الدليل ومصطلحات المفاتيح
+
+هذا الفصل يعرض **المخطط الذي ينتج من EF model وملفات migrations الموجودة**. لا يعني ذلك أن قاعدة SQL Server الحية طابقت هذا المخطط وقت التوثيق. لا تتضمن `appsettings.json` Connection String، ويحمّل البرنامج إعدادات محلية من User Secrets بشروط معينة أو من Environment Variables؛ ولم يُنفذ اتصال استعلامي بقاعدة خارجية. حالة تطبيق كل migration على كل قاعدة **غير متحقق منها**.
+
+- **Primary Key (PK):** قيمة أو مجموعة قيم تميز كل صف.
+- **Foreign Key (FK):** عمود يشير إلى صف في جدول آخر ويمنع مرجعًا بلا أصل.
+- **One-to-One:** صف واحد يقابله صف واحد. لا توجد علاقة تطبيقية One-to-One في النموذج الحالي.
+- **One-to-Many:** صف أب يرتبط بعدة صفوف أبناء، مثل Trip وأيامها.
+- **Many-to-Many:** عناصر كثيرة ترتبط بعناصر كثيرة أخرى عبر جدول ربط مثل `TripInterests`.
+- **Unique Index:** فهرس يمنع تكرار قيمة أو تركيب أعمدة، ويمكن أيضًا تحسين البحث.
+- **Composite Primary Key:** مفتاح أساسي يتكون من عمودين أو أكثر.
+- **Cascade Delete:** حذف الأب يؤدي إلى حذف الأبناء المرتبطين وفق FK محدد.
+- **Migration:** نسخة وصفية لتغييرات المخطط، وليست إثباتًا أن قاعدة معينة استقبلتها.
+
+## 4.2 مخطط العلاقات
+
+```mermaid
+erDiagram
+  AspNetUsers ||--o{ UserPreferences : owns
+  AspNetUsers ||--o{ Trips : owns
+  AspNetUsers ||--o{ AspNetUserClaims : has
+  AspNetUsers ||--o{ AspNetUserLogins : has
+  AspNetUsers ||--o{ AspNetUserRoles : assigned
+  AspNetUsers ||--o{ AspNetUserTokens : has
+  AspNetRoles ||--o{ AspNetRoleClaims : has
+  AspNetRoles ||--o{ AspNetUserRoles : assigned
+  Trips ||--o{ TripDays : contains
+  TripDays ||--o{ Activities : plans
+  Trips ||--o{ TripInterests : selects
+  Interests ||--o{ TripInterests : links
+  Trips ||--o{ AiConversations : owns_by_composite_fk
+  AiConversations ||--o{ AiConversationMessages : contains
+```
+
+علاقة المحادثة دقيقة ومقصودة: المفتاح الأجنبي المركب `(AiConversations.TripId, AiConversations.UserId)` يشير إلى المفتاح البديل `(Trips.Id, Trips.UserId)`. بذلك يثبت SQL Server أن مالك المحادثة هو مالك الرحلة نفسها. لا يوجد FK مباشر مستقل من `AiConversations.UserId` إلى `AspNetUsers` في النموذج الحالي؛ ارتباط المستخدم يمر عبر الرحلة. علاقة مستخدم الرحلة نفسها بـ `AspNetUsers` موجودة في `Trips.UserId`.
+
+مخطط Identity مبسط:
+
+```text
+AspNetUsers 1 ── * AspNetUserClaims
+AspNetUsers 1 ── * AspNetUserLogins
+AspNetUsers 1 ── * AspNetUserTokens
+AspNetUsers 1 ── * AspNetUserRoles * ── 1 AspNetRoles
+AspNetRoles 1 ── * AspNetRoleClaims
+```
+
+**كل جداول Identity السبعة، وكل جداول التطبيق الثمانية، موثقة في الجداول التالية.** يوضح Mermaid أعلاه الروابط، بينما تُسرد PK/FK والأعمدة والفهارس والقيود تفصيليًا.
+
+## 4.3 جداول التطبيق
+
+### `UserPreferences`
+
+تخزن تفضيلًا عامًا للمستخدم. لا تمثل اهتمام رحلة واحدة.
+
+| العمود | النوع | Null؟ | الشرح |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | لا | المفتاح الأساسي. |
+| `UserId` | `int` | لا | FK إلى `AspNetUsers.Id`. |
+| `Type` | `nvarchar(50)` | لا | فئة التفضيل. |
+| `Interest` | `nvarchar(100)` | لا | القيمة النصية للاهتمام. |
+| `Pace` | `nvarchar(20)` | نعم | إيقاع مفضل نصي، لا يحوله النموذج إلى enum ولا يقيد قيمه بقائمة. |
+| `CreatedAt` | `datetime2` | لا | وقت الإضافة؛ القيمة الافتراضية في الكيان UTC. |
+
+الفهرس الفريد `(UserId, Type, Interest)` يمنع تكرار التفضيل نفسه للمستخدم. حذف المستخدم يحذف تفضيلاته (Cascade). لا توجد نقطة API لقراءة التفضيلات أو تعديلها.
+
+### `Interests`
+
+قاموس مشترك لقيم الاهتمام التي يمكن لرحلات متعددة إعادة استخدامها.
+
+| العمود | النوع | Null؟ | الشرح |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | لا | PK. |
+| `Name` | `nvarchar(100)` | لا | الاسم، مع collation غير حساس لحالة الأحرف `Latin1_General_100_CI_AS`. |
+
+اسم الاهتمام له فهرس فريد، وشرط قاعدة البيانات يرفض الاسم الفارغ أو المحاط بمسافات. خاصية `Interest.Name` تقص المسافات عند الإسناد في كود C# أيضًا. FK من `TripInterests.InterestId` يستخدم Restrict، لذلك لا يحذف سجل مشترك لمجرد حذف رحلة.
+
+### `Trips`
+
+الكيان المركزي للرحلة؛ الرحلة يملكها مستخدم واحد وتجمع الأيام والاهتمامات والمحادثات.
+
+| العمود | النوع | Null؟ | الشرح |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | لا | PK. |
+| `UserId` | `int` | لا | FK إلى `AspNetUsers.Id`؛ Cascade في النموذج الحالي. |
+| `Destination` | `nvarchar(200)` | لا | اسم الوجهة. |
+| `Budget` | `decimal(18,2)` | لا | الميزانية؛ شرطها صفر أو أكبر. |
+| `Currency` | `char(3)` | لا | افتراضي `USD`؛ شرط DB يفرض طولًا قدره ثلاثة أحرف فقط. |
+| `DaysNumber` | `int` | لا | المدة من 1 إلى 30 يومًا. |
+| `TravellersCount` | `int` | لا | عدد المسافرين، لا يقل عن 1. |
+| `StartDate` | `date` | لا | تاريخ دون وقت أو منطقة زمنية. |
+| `Pace` | `nvarchar(20)` | لا | enum محفوظ كنص: `Relaxed` أو `Balanced` أو `Packed`. |
+| `CreatedAt` | `datetime2` | لا | وقت إنشاء الكيان. |
+| `UpdatedAt` | `datetime2` | نعم | آخر تحديث إن توفر. |
+
+الفهرس `(UserId, StartDate)` **غير فريد**. لا يوجد قيد يمنع المستخدم من إنشاء رحلتين إلى الوجهة نفسها بتاريخ البداية نفسه؛ توجد وحدة اختبار تؤكد السماح بذلك. المفتاح البديل `(Id, UserId)` فريد ويخدم FK المركب للمحادثة، ولا يفرض uniqueness على الوجهة والتاريخ.
+
+### `TripDays`
+
+صف لكل يوم مخطط داخل رحلة. يمكن أن يكون جدول الأيام جزئيًا؛ لا يفرض المخطط أن يحتوي كل `DaysNumber` يومًا أو أن تكون كل الأيام متتالية.
+
+| العمود | النوع | Null؟ | الشرح |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | لا | PK. |
+| `TripId` | `int` | لا | FK إلى `Trips.Id` مع Cascade. |
+| `DayNumber` | `int` | لا | ترتيب اليوم ويبدأ من 1؛ يوجد Check Constraint. |
+| `Date` | `date` | لا | تاريخ اليوم دون منطقة زمنية. |
+| `WeekDay` | `nvarchar(20)` | لا | اسم يوم الأسبوع كنص. |
+| `CreatedAt` | `datetime2` | لا | وقت الإنشاء. |
+
+يوجد فهرسان فريدان: `(TripId, DayNumber)` و`(TripId, Date)`. هذا يمنع تكرار رقم اليوم أو التاريخ ضمن الرحلة نفسها. حذف الرحلة يحذف الأيام، وحذف اليوم يحذف أنشطته.
+
+### `Activities`
+
+نشاط مخطط ضمن يوم. أسماء الأنواع والقيم قابلة للقراءة في DB لأنها تُخزن كنصوص.
+
+| العمود | النوع | Null؟ | الشرح |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | لا | PK. |
+| `DayId` | `int` | لا | FK إلى `TripDays.Id` مع Cascade. |
+| `Name` | `nvarchar(200)` | لا | اسم النشاط. |
+| `Description` | `nvarchar(1000)` | نعم | وصف اختياري. |
+| `LocationName` | `nvarchar(200)` | نعم | اسم المكان اختياري. |
+| `ActivityType` | `nvarchar(30)` | لا | إحدى قيم `ActivityType`. |
+| `EstimatedCost` | `decimal(18,2)` | لا | تكلفة تقديرية لا تقل عن صفر. |
+| `CostBasis` | `nvarchar(20)` | لا | `PerPerson` أو `PerGroup` أو `Free`. |
+| `StartTime` | `time` | نعم | وقت ضمن اليوم فقط. |
+| `EndTime` | `time` | نعم | وقت نهاية اختياري. |
+| `ActivityOrder` | `int` | لا | الترتيب ويبدأ من 1. |
+| `CreatedAt` | `datetime2` | لا | وقت الإنشاء. |
+
+الفهرس الفريد `(DayId, ActivityOrder)` يجعل الترتيب فريدًا داخل اليوم لا عبر الأيام. قيود CHECK تمنع تكلفة سالبة وترتيبًا أقل من 1، وتتحقق من أسماء `ActivityType` و`CostBasis`، ومن أن `EndTime > StartTime` عندما يكون الوقتان موجودين. إذا لم يوجد أحد الوقتين، لا يطبق شرط ترتيب الوقت. يفحص `AppDbContext.SaveChanges` تداخل الفترات الكاملة للأنشطة المعدلة أو المضافة، لكنه فحص تطبيقي قبل الحفظ وليس قيد تداخل SQL متزامنًا.
+
+### `TripInterests`
+
+جدول ربط many-to-many بين الرحلات وقاموس الاهتمامات.
+
+| العمود | النوع | Null؟ | الشرح |
+|---|---|---|---|
+| `TripId` | `int` | لا | FK إلى `Trips.Id`، ويكوّن جزءًا من PK المركب؛ Cascade. |
+| `InterestId` | `int` | لا | FK إلى `Interests.Id`، ويكوّن جزءًا من PK المركب؛ Restrict عند حذف الاهتمام. |
+
+المفتاح الأساسي `(TripId, InterestId)` يمنع ربط الاهتمام نفسه بالرحلة نفسها مرتين. ويوجد فهرس على `InterestId` للبحث العكسي.
+
+### `AiConversations`
+
+سجل المحادثة ومالكها والرحلة التي تحدد مدتها. لا يحتوي رسائل؛ الرسائل في جدول منفصل.
+
+| العمود | النوع | Null؟ | الشرح |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | لا | PK. |
+| `UserId` | `int` | لا | مع `TripId` يشكل FK مركبًا إلى مالك الرحلة. |
+| `TripId` | `int` | لا | جزء FK إلى `(Trips.Id, Trips.UserId)`. |
+| `Title` | `nvarchar(200)` | نعم | عنوان اختياري. |
+| `CreatedAt` | `datetime2` | لا | وقت UTC يعينه التنفيذ عند الإنشاء. |
+| `UpdatedAt` | `datetime2` | نعم | يتغير عند إضافة رسالة مستخدم. |
+
+الفهارس: `(UserId, CreatedAt)` و`(TripId, UserId, CreatedAt)`. الحذف من رحلة إلى محادثة Cascade؛ حذف المحادثة يحذف الرسائل أيضًا. لا يوجد FK منفصل من `UserId` إلى جدول المستخدمين. علاقة المالك تتحقق بمطابقة الزوج مع زوج الرحلة.
+
+### `AiConversationMessages`
+
+كل رسالة محفوظة في المحادثة مع الدور والمحتوى وتاريخ الإنشاء.
+
+| العمود | النوع | Null؟ | الشرح |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | لا | PK. |
+| `ConversationId` | `int` | لا | FK إلى `AiConversations.Id` مع Cascade. |
+| `Role` | `nvarchar(20)` | لا | `User` أو `Assistant` مع Check Constraint. |
+| `Content` | `nvarchar(max)` | لا | نص الرسالة. |
+| `CreatedAt` | `datetime2` | لا | وقت الإنشاء. |
+
+الفهرس `(ConversationId, CreatedAt)` يساعد ترتيب الرسائل؛ القراءة تضيف `Id` كفاصل ثابت عند تساوي الوقت. التنفيذ الحالي ينشئ رسائل بدور `User` فقط، ولا توجد معالجة رد Assistant تلقائي.
+
+## 4.4 جداول ASP.NET Core Identity
+
+تستخدم Identity مفاتيح عددية `int`. أسماء الجداول القياسية تحتوي مستخدمين وأدوارًا ومطالبات (claims) وروابط دخول خارجية ورموزًا. وجود بعض الجداول لا يعني تفعيل كل إمكاناتها في API.
+
+### `AspNetUsers`
+
+يمثل الحساب وحقول Identity القياسية وحقلي الاسم وتاريخي الإنشاء/التحديث المضافين في `ApplicationUser`.
+
+| العمود | النوع | Null؟ | الوصف |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | لا | PK. |
+| `FirstName`, `LastName` | `nvarchar(100)` لكل منهما | لا | حقلا SkyMate الإضافيان. |
+| `CreatedAt` | `datetime2` | لا | تاريخ الإنشاء المضاف. |
+| `UpdatedAt` | `datetime2` | نعم | تاريخ تعديل اختياري. |
+| `UserName`, `NormalizedUserName` | `nvarchar(256)` لكل منهما | نعم | اسم الحساب ونسخته المعيارية. |
+| `Email`, `NormalizedEmail` | `nvarchar(256)` لكل منهما | نعم | البريد ونسخته المعيارية. |
+| `EmailConfirmed` | `bit` | لا | حالة تأكيد البريد. |
+| `PasswordHash` | `nvarchar(max)` | نعم | hash تديره Identity، لا كلمة المرور الأصلية. |
+| `SecurityStamp`, `ConcurrencyStamp` | `nvarchar(max)` لكل منهما | نعم | قيم إدارة أمن/تزامن Identity. |
+| `PhoneNumber` | `nvarchar(max)` | نعم | حقل Identity اختياري؛ لا توجد واجهة هاتف خاصة في الحل الحالي. |
+| `PhoneNumberConfirmed`, `TwoFactorEnabled`, `LockoutEnabled` | `bit` لكل منها | لا | أعلام Identity. |
+| `LockoutEnd` | `datetimeoffset` | نعم | نهاية الحظر المؤقت. |
+| `AccessFailedCount` | `int` | لا | عدد محاولات الدخول الفاشلة. |
+
+يوجد فهرس فريد مفلتر باسم `EmailIndex` على `NormalizedEmail` عندما لا يكون NULL. ويوجد فهرس اسم المستخدم القياسي لـ Identity على `NormalizedUserName` (فريد ومفلتر). UserPreferences وTrips يرتبطان بالمستخدم مع Cascade في النموذج الحالي.
+
+### `AspNetRoles`
+
+| العمود | النوع | Null؟ | الوصف |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | لا | PK. |
+| `Name`, `NormalizedName` | `nvarchar(256)` لكل منهما | نعم | اسم الدور ونسخته المعيارية. |
+| `ConcurrencyStamp` | `nvarchar(max)` | نعم | قيمة تزامن Identity. |
+
+الفهرس `RoleNameIndex` فريد ومفلتر على `NormalizedName`. ينشئ `IdentityRoleSeeder` الدورين `User` و`Admin` إن لم يكونا موجودين.
+
+### `AspNetUserClaims`
+
+| العمود | النوع | Null؟ | المفاتيح والعلاقة |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | لا | PK. |
+| `UserId` | `int` | لا | FK إلى `AspNetUsers.Id` مع Cascade. |
+| `ClaimType`, `ClaimValue` | `nvarchar(max)` لكل منهما | نعم | نوع المطالبة وقيمتها. |
+
+فهرس على `UserId`.
+
+### `AspNetUserLogins`
+
+| العمود | النوع | Null؟ | المفاتيح والعلاقة |
+|---|---|---|---|
+| `LoginProvider` | `nvarchar(450)` | لا | الجزء الأول من PK المركب. |
+| `ProviderKey` | `nvarchar(450)` | لا | الجزء الثاني من PK المركب. |
+| `ProviderDisplayName` | `nvarchar(max)` | نعم | اسم مزود الدخول المعروض. |
+| `UserId` | `int` | لا | FK إلى المستخدم مع Cascade. |
+
+PK هو `(LoginProvider, ProviderKey)`، ويوجد فهرس على `UserId`. لا يضيف الكود الحالي تسجيل دخول OAuth خارجيًا.
+
+### `AspNetUserRoles`
+
+| العمود | النوع | Null؟ | المفاتيح والعلاقة |
+|---|---|---|---|
+| `UserId` | `int` | لا | جزء من PK المركب وFK إلى `AspNetUsers` مع Cascade. |
+| `RoleId` | `int` | لا | جزء من PK المركب وFK إلى `AspNetRoles` مع Cascade. |
+
+PK هو `(UserId, RoleId)`، ويوجد فهرس على `RoleId`.
+
+### `AspNetUserTokens`
+
+| العمود | النوع | Null؟ | المفاتيح والعلاقة |
+|---|---|---|---|
+| `UserId` | `int` | لا | جزء PK وFK إلى المستخدم مع Cascade. |
+| `LoginProvider` | `nvarchar(450)` | لا | جزء PK. |
+| `Name` | `nvarchar(450)` | لا | جزء PK. |
+| `Value` | `nvarchar(max)` | نعم | قيمة الرمز. |
+
+PK مركب `(UserId, LoginProvider, Name)`.
+
+### `AspNetRoleClaims`
+
+| العمود | النوع | Null؟ | المفاتيح والعلاقة |
+|---|---|---|---|
+| `Id` | `int IDENTITY` | لا | PK. |
+| `RoleId` | `int` | لا | FK إلى `AspNetRoles.Id` مع Cascade. |
+| `ClaimType`, `ClaimValue` | `nvarchar(max)` لكل منهما | نعم | نوع المطالبة وقيمتها. |
+
+يوجد فهرس على `RoleId`.
+
+## 4.5 التفضيلات والاهتمامات وعلاقات خطة الرحلة
+
+`UserPreferences` تحفظ تفضيلات عامة طويلة الأمد للمستخدم: النوع والقيمة والإيقاع الاختياري. أما `Interests` فهي قاموس مشترك، و`TripInterests` تقول أي عناصر من هذا القاموس اختيرت لرحلة بعينها. لذلك يمكن لمستخدم أن يختار اهتمامًا عامًا بالسياحة الثقافية ثم يربط رحلة معينة باهتمام `Culture` عبر جدول الربط؛ لا توجد في المصدر خدمة تجمع الاثنين أو تحولهما تلقائيًا إلى خطة.
+
+العلاقة `Trips 1 → many TripDays 1 → many Activities` تفصل الرأس عن تفاصيل الجدول: الرحلة تحفظ التاريخ والميزانية والمدة؛ اليوم يربط تاريخًا ورقمًا بالرحلة؛ النشاط يربط الموقع والنوع والتكلفة وترتيبه باليوم. الحذف المتسلسل يزيل تفاصيل الرحلة التابعة.
+
+في chatbot، `AiConversations` تمثل رأس السجل، و`AiConversationMessages` تمثل محتوى الرسائل. كل محادثة مرتبطة برحلة واحدة ومالك مطابق لها عبر FK مركب. حذف المحادثة دائم عبر `ExecuteDeleteAsync`، ورسائلها تُحذف بـ Cascade. عند انتهاء الرحلة ينفذ عامل التنظيف حذفًا دائمًا للمحادثات؛ الرسائل تتبعها بالـ Cascade. لا يوجد أرشيف أو soft delete.
+
+# الفصل 5: Entity Framework Core وتنفيذ قاعدة البيانات
+
+## 5.1 AppDbContext وFluent API
+
+يرث `AppDbContext` من `IdentityDbContext<ApplicationUser, IdentityRole<int>, int>`، ولذلك يجمع مخطط Identity ومخطط SkyMate في سياق واحد. خصائص `DbSet` المعلنة للكيانات هي `UserPreferences`, `Interests`, `Trips`, `TripDays`, `Activities`, `TripInterests`, `AiConversations`, و`AiConversationMessages`. تنفذ `OnModelCreating` أولًا إعداد Identity الأساسي ثم `ApplyConfigurationsFromAssembly` ليقرأ ملفات `IEntityTypeConfiguration<T>`.
+
+**Fluent API** هي تعليمات C# تحدد شكل الأعمدة والمفاتيح والعلاقات والفهارس. مثلًا يحدد `TripConfiguration` دقة المال `decimal(18,2)`، وتحويل `Pace` إلى نص، ويضيف فحص الميزانية والمدة وعدد المسافرين. أما `TripInterestConfiguration` فيعرف PK مركبًا وسلوكي حذف مختلفين للطرفين.
+
+## 5.2 قيود العلاقات والحفظ
+
+تحدد الإعدادات Cascade بين المستخدم وتفضيلاته ورحلاته، والرحلة وأيامها ومحادثاتها وروابط اهتماماتها، واليوم وأنشطته، والمحادثة ورسائلها. FK الخاص بـ `TripInterests` إلى قاموس الاهتمامات Restrict كي لا يحذف قيمة مشتركة عرضًا. FK المحادثة المركب Cascade من الرحلة إلى المحادثة. أسماء enums في DB تخزن كسلاسل نصية لا كأرقام.
+
+يعيد `AppDbContext.SaveChanges` و`SaveChangesAsync` استدعاء تحقق من الأنشطة المتغيرة. يجلب الأنشطة الحالية للأيام المتأثرة، يستبعد النسخ القديمة المعدلة/المحذوفة، ويرتب الأنشطة التي تحتوي وقت بداية ونهاية. إذا بدأ نشاط قبل نهاية السابق يرمي `InvalidOperationException`. التحقق لا يغطي تلقائيًا تداخل عمليتي حفظ متزامنتين، كما أن مسار الخطأ غير محول هنا إلى استجابة 400 مخصصة.
+
+## 5.3 Repository وUnit of Work
+
+`IGenericRepository<T>` مع `GenericRepository<T>` يغلفان العمليات الأساسية (`GetByIdAsync`, `ListAsync`, `AddAsync`, `Update`, `Remove`). `ListAsync` تستخدم `AsNoTracking`. `IUnitOfWork` و`UnitOfWork` يغلفان `SaveChangesAsync`. كلاهما مسجل في DI. لكن `TripReadService` و`ChatbotConversationService` وcleanup يستخدمون `AppDbContext` مباشرة؛ لذا وجود هذه الأنماط لا يعني أن كل استخدام قاعدة بيانات يمر عبرها.
+
+## 5.4 الاتصال بـ SQL Server
+
+`DependencyInjection.AddInfrastructure` يقرأ `ConnectionStrings:DefaultConnection` ويرمي خطأ بدء واضحًا إن كانت فارغة، ثم يسجل `UseSqlServer(connectionString)`. لا توجد قيمة connection string في `appsettings.json` المفحوص. يذكر الخطأ ضرورة ضبطها عبر .NET User Secrets محليًا. اتصال SQL Server ناجح أو قاعدة بعينها **غير متحقق منه**.
+
+## 5.5 سجل migrations
+
+الترتيب أدناه بحسب معرف migration. الملفات المرافقة `.Designer.cs` تحفظ metadata، و`AppDbContextModelSnapshot.cs` يصف النموذج الحالي. إنشاء ملف migration لا يطبقها على قاعدة بيانات.
+
+| Migration | التغيير الذي تصفه الملفات | حالة التطبيق على قاعدة حية |
+|---|---|---|
+| `20261103100516_InitialIdentityAndTravelSchema` | ينشئ جداول Identity السبعة وجداول الاهتمامات والرحلات والأيام والأنشطة والتفضيلات وربط الاهتمامات والمحادثات ورسائلها. في هذه المرحلة الأولى كانت المحادثة لا تحتوي `TripId`، وكانت بعض علاقات المستخدم Restrict، وكان جدول `UserPhones` موجودًا مؤقتًا. يضيف مفاتيح وفهارس وقيود المجال الأساسية. | **غير متحقق منه**؛ وجود `Up` في المصدر لا يثبت التطبيق. |
+| `20261116130808_ChatbotConversationTripLifecycle` | يفحص وجود محادثة قديمة قبل إضافة `TripId` المطلوب، ثم يضيف المفتاح البديل `(Trips.Id, UserId)` وفهرس المحادثة `(TripId, UserId, CreatedAt)` وFK مركب Cascade. يمنع تخمين الرحلة المناسبة لمحادثات قديمة. | **غير متحقق منه**؛ لم يُستعلم عن `__EFMigrationsHistory` في SQL Server. |
+| `20261116191355_EnforceTripAndActivityIntegrity` | يفشل قبل التغيير إذا وجد تكرار `(TripId, Date)` أو `(DayId, ActivityOrder)` أو صفوف في `UserPhones`. ثم يحذف FK المحادثة المباشر إلى المستخدم وFK الرحلة Restrict، ويسقط جدول `UserPhones`، ويستبدل فهرس ترتيب النشاط بفهرس فريد ويضيف فهرس تاريخ يوم الرحلة الفريد، ويعيد FK الرحلة إلى المستخدم مع Cascade. `Down` يعيد الجدول والفهارس وFKs القديمة. | **غير متحقق منه**؛ لم يُنفذ تطبيق أو rollback على قاعدة حية في هذه المهمة. |
+
+كانت هناك وثائق سابقة في المستودع تذكر تطبيق migrations على قاعدة باسم `SkyMateDb`. لم يُعد هذا التوثيق تنفيذ فحص مستقل لهذه القاعدة؛ لذلك لا يستخدم تلك العبارة دليلًا على حالة أي قاعدة في الوقت الحالي. المعلومة التشغيلية ما زالت غير متحقق منها.
+
+# الفصل 6: المصادقة والتفويض
+
+## 6.1 ASP.NET Core Identity
+
+تستخدم Infrastructure `AddIdentityCore<ApplicationUser>` مع مخزن EF Core، وتضيف `IdentityRole<int>`. توسع `ApplicationUser` `IdentityUser<int>` بحقول `FirstName` و`LastName` و`CreatedAt` و`UpdatedAt` وروابط رحلات وتفضيلات. Identity تتولى hash كلمة المرور وتطابقها وإدارة `AccessFailedCount` و`LockoutEnd`.
+
+الإعدادات: البريد فريد (`RequireUniqueEmail=true`)، تأكيد البريد غير مطلوب للدخول (`RequireConfirmedEmail=false`)، كلمة المرور 8 أحرف على الأقل وتحتوي حرفًا كبيرًا وصغيرًا ورقمًا، ولا يشترط رمز خاص. يسمح بالحظر للحسابات الجديدة، ويبدأ بعد خمس محاولات فاشلة لمدة 15 دقيقة. DTO التسجيل يفرض كذلك `[MinLength(8)]` و`ConfirmPassword` مساويًا لكلمة المرور.
+
+## 6.2 التسجيل خطوة بخطوة
+
+1. يرسل العميل `POST /api/v1/auth/register` دون JWT.
+2. `[ApiController]` يتحقق من DataAnnotations في `RegisterRequest`: الاسم الأول والأخير والبريد وكلمة المرور وتأكيدها مطلوبة، الاسم حتى 100 حرف، والبريد حتى 256 ومهيأ كعنوان بريد.
+3. يقص Controller البريد والاسمين، ويفحص البريد قبل الإنشاء؛ البريد المكرر يعيد 409.
+4. ينشئ `ApplicationUser` باسم مستخدم يساوي البريد، ويفعل lockout للحساب.
+5. يستدعي `UserManager.CreateAsync(user, password)`. Identity تخزن hash لا كلمة المرور النصية وتطبق قواعد كلمة المرور.
+6. يضيف الخادم دور `User` بنفسه؛ لا يقبل اختيار الدور من طلب التسجيل. عند فشل تعيين الدور يحذف الحساب الجزئي، ثم يرمي خطأ إذا تعذر التنظيف.
+7. يعيد 201 و`RegisterResponse` مع معرف وبريد واسمين وأدوار. لا يعيد التسجيل JWT.
+
+يبدأ البرنامج بزرع دورَي `User` و`Admin` قبل `RunAsync`. لا يوجد endpoint يمنح الدور الإداري.
+
+## 6.3 تسجيل الدخول ومحاولات الفشل
+
+1. يرسل العميل `POST /api/v1/auth/login` بالبريد وكلمة المرور.
+2. يبحث `UserManager` عن البريد بعد قص المسافات.
+3. إذا لم يوجد مستخدم أو كان مقفولًا، يعيد رد 401 عامًا: البريد أو كلمة المرور غير صحيحة.
+4. إذا كانت كلمة المرور خطأ، تزيد Identity عداد المحاولات للحساب المسموح بحظره. بعد خمس محاولات يطبق حظر 15 دقيقة. الرسالة لا تكشف هل البريد موجود.
+5. إذا نجحت المطابقة، يصفر العداد، يستخرج الأدوار، ثم ينشئ JWT بواسطة `JwtTokenService`.
+6. يعيد `LoginResponse`: `accessToken`, `tokenType` (`Bearer`), وقت الانتهاء UTC، مدة بالثواني، والملف العام.
+
+لا يزيد الكود العداد للبريد غير المعروف لأن لا يوجد حساب لتسجيل المحاولة عليه. لا توجد endpoint لتغيير/استعادة كلمة مرور أو تحديث/إبطال refresh token.
+
+## 6.4 محتويات JWT والتحقق منه
+
+يحمل الرمز claims `sub` (معرف المستخدم كرقم)، `email`، `jti` عشوائي، وclaim `role` لكل دور. يوقع بـ HMAC-SHA256 والمفتاح من إعدادات `Jwt`. يصدر الوقت عبر `TimeProvider.GetUtcNow` ويحسب الانتهاء من `ExpiryMinutes`، والقيمة الحالية في `appsettings.json` هي 60 دقيقة. يجب ألا يقل طول مفتاح التوقيع عن 32 بايت UTF-8؛ لا يتضمن هذا المستند أي قيمة سرية.
+
+يقوم JWT Bearer middleware بالتحقق من issuer وaudience والتوقيع والعمر، مع سماح فرق ساعة 30 ثانية. يعطل `MapInboundClaims` و`SaveToken`، ويستخدم `sub` كنوع اسم و`role` كنوع دور. تستخدم `ClaimsPrincipalExtensions.GetAuthenticatedUserId` `sub` بدل قراءة رقم يقدمه العميل.
+
+## 6.5 التفويض والملكية
+
+`/api/v1/auth/me` يحتاج مصادقة فقط. Controllers الرحلات والمحادثات تحمل `[Authorize(Roles = "User")]`. المستخدم الذي يقدم JWT صحيحًا بدور غير مسموح يتلقى 403. استعلامات الرحلات تضيف `trip.UserId == userId` قبل الإسقاط، وخدمة المحادثات تكرر فحص `UserId` وملكية الرحلة وحالتها. إذا حاول المستخدم الوصول إلى رحلة أو محادثة شخص آخر، تكون النتيجة `NotFound` حتى لا يعلن API وجود مورد غير مسموح.
+
+إذا غاب الرمز أو كان غير صالح، يوقف middleware الطلب قبل تنفيذ Controller ويعيد 401 للمسارات المحمية. `GetAuthenticatedUserId` يعيد null إذا كان claim مفقودًا أو غير قابل للتحويل، وتعيد بعض Controllers 401 احتياطًا.
+
+# الفصل 7: توثيق API
+
+## 7.1 قواعد عامة
+
+كل المسارات تحت `/api/v1`. يقبل API ويعيد JSON بحروف camelCase، وتحول Enums إلى أسمائها النصية بواسطة `JsonStringEnumConverter`. تستخدم `[ApiController]` التحقق التلقائي من DataAnnotations، وتضيف Swagger وصف Bearer للعمليات المحمية بواسطة `AuthorizeOperationFilter`. الوثائق أدناه تشمل كل Actions في Controllers الموجودة. ليست هناك نقطة لإنشاء Trip أو تعديلها أو إدارة الأيام والأنشطة والتفضيلات.
+
+## 7.2 المصادقة والملف الشخصي
+
+### `POST /api/v1/auth/register`
+
+| العنصر | التفاصيل |
+|---|---|
+| Controller / الوصول | `AuthController.Register`؛ `AllowAnonymous`. |
+| الغرض | إنشاء الحساب وإسناد دور `User`. |
+| الطلب | `RegisterRequest`: `firstName` و`lastName` مطلوبان، طول كل منهما 1-100؛ `email` مطلوب وصالح حتى 256؛ `password` مطلوب 8+؛ `confirmPassword` مطلوب ويطابق `password`. Identity تضيف قيود uppercase/lowercase/digit. |
+| الاستجابة | 201 `RegisterResponse`: `id`, `email`, `firstName`, `lastName`, `roles`. لا يعاد access token. |
+| الحالات | 201 نجاح؛ 400 تحقق DTO أو قواعد Identity؛ 409 البريد مستخدم. |
+| الخدمات والجداول | `UserManager<ApplicationUser>`، Identity role store؛ `AspNetUsers`, `AspNetRoles`, `AspNetUserRoles`. |
+
+### `POST /api/v1/auth/login`
+
+| العنصر | التفاصيل |
+|---|---|
+| Controller / الوصول | `AuthController.Login`؛ `AllowAnonymous`. |
+| الغرض | فحص بيانات الدخول وإصدار JWT. |
+| الطلب | `LoginRequest`: `email` مطلوب وصالح حتى 256، و`password` مطلوب. |
+| الاستجابة | 200 `LoginResponse`: `accessToken`, `tokenType`, `expiresAtUtc`, `expiresInSeconds`, و`user` من نوع `AuthUserResponse`. |
+| الحالات | 200 نجاح؛ 400 خطأ DataAnnotations؛ 401 بريد غير معروف أو كلمة مرور خطأ أو حساب مقفول، برسالة عامة. |
+| الخدمات والجداول | `UserManager<ApplicationUser>` و`IJwtTokenService`; يقرأ `AspNetUsers` والأدوار من `AspNetUserRoles` و`AspNetRoles`. |
+
+### `GET /api/v1/auth/me`
+
+| العنصر | التفاصيل |
+|---|---|
+| Controller / الوصول | `AuthController.Me`؛ يتطلب JWT صحيحًا، ولا يشترط دورًا بعينه. |
+| الغرض | قراءة ملف المستخدم المطابق لـ `sub` في الرمز. |
+| الطلب | لا يوجد body. |
+| الاستجابة | 200 `AuthUserResponse`: `id`, `email`, `firstName`, `lastName`, `roles`. |
+| الحالات | 200؛ 401 رمز مفقود/غير صالح، أو subject غير رقمي، أو حساب غير موجود/بلا بريد. |
+| الخدمات والجداول | `UserManager<ApplicationUser>`؛ `AspNetUsers`, `AspNetUserRoles`, `AspNetRoles`. |
+
+مثال شكل استجابة الملف العام (قيم توضيحية):
+
+```json
+{
+  "id": 17,
+  "email": "traveler@example.test",
+  "firstName": "Nour",
+  "lastName": "Hassan",
+  "roles": ["User"]
+}
+```
+
+## 7.3 قراءة الرحلات
+
+### `GET /api/v1/trips`
+
+`TripsController.List` يتطلب JWT بدور `User`. لا يحتاج request DTO أو body. يعيد 200 مع قائمة `TripResponse` (قد تكون فارغة)، أو 401 للرمز غير المقبول، أو 403 لغياب الدور. يستدعي `ITripReadService.ListForUserAsync`; يقرأ `Trips` فقط ويصفي النتائج حسب معرف المستخدم ثم يرتب `StartDate` تنازليًا. يقتصر كل عنصر على `id`, `destination`, `budget`, `currency`, `daysNumber`, `travellersCount`, `startDate`, `pace`.
+
+### `GET /api/v1/trips/{tripId:int}`
+
+`TripsController.Get` يتطلب دور `User`. يعيد 200 و`TripResponse` إذا كانت الرحلة مملوكة لصاحب الرمز؛ 401 أو 403 أو 404 إذا لم توجد/لم تكن مملوكة له. لا يذكر endpoint أيام الرحلة أو أنشطتها أو اهتماماتها في response. ينفذ `ITripReadService.GetForUserAsync` شرط `Id` و`UserId` في استعلام واحد على جدول `Trips`.
+
+مثال عنصر مختصر، مع قيم توضيحية فقط:
+
+```json
+{
+  "id": 52,
+  "destination": "Rome",
+  "budget": 1250.50,
+  "currency": "EUR",
+  "daysNumber": 4,
+  "travellersCount": 2,
+  "startDate": "2026-12-10",
+  "pace": "Balanced"
+}
+```
+
+## 7.4 المحادثات والرسائل
+
+كل نقاط هذا القسم في `ChatbotConversationsController` وتتطلب JWT بدور `User`. الـ service تتحقق من مالك الرحلة/المحادثة والتاريخ الحالي قبل القراءة أو الإضافة؛ يعاد 404 للمورد غير المتاح أو غير المملوك.
+
+| Method والمسار | الغرض والطلب | الاستجابة والحالات | الخدمة والجداول |
+|---|---|---|---|
+| `GET /api/v1/trips/{tripId:int}/conversations` | قائمة محادثات الرحلة النشطة المملوكة للمستخدم. لا body. | 200 قائمة `ConversationResponse`; 401/403/404. | `ListForActiveTripAsync`; `Trips`, `AiConversations`. |
+| `POST /api/v1/trips/{tripId:int}/conversations` | إنشاء محادثة لرحلة نشطة. body اختياري `CreateConversationRequest` وفيه `title` اختياري حتى 200 حرف؛ الخادم يحدد UserId. | 201 `ConversationResponse`; 400 تحقق؛ 401/403/404. | `CreateForActiveTripAsync`; `Trips`, `AiConversations`. |
+| `GET /api/v1/conversations/{conversationId:int}` | قراءة رأس محادثة مملوكة لرحلة نشطة. | 200 `ConversationResponse`; 401/403/404. | `GetForActiveTripAsync`; `AiConversations`, `Trips`. |
+| `DELETE /api/v1/conversations/{conversationId:int}` | حذف المحادثة المملوكة للمستخدم؛ لا يتطلب بقاء الرحلة نشطة، ويتحقق من المالك. | 204 دون body؛ 401/403/404. حذف الرسائل تابع Cascade. | `DeleteForUserAsync`; `AiConversations`, `AiConversationMessages`. |
+| `GET /api/v1/conversations/{conversationId:int}/messages` | جلب رسائل محادثة المستخدم النشطة مرتبة بوقت الإنشاء ثم Id. | 200 قائمة `ConversationMessageResponse`; 401/403/404. | `ListMessagesForActiveTripAsync`; `AiConversations`, `Trips`, `AiConversationMessages`. |
+| `POST /api/v1/conversations/{conversationId:int}/messages` | إضافة رسالة مستخدم. body `AddConversationMessageRequest`: `content` مطلوب 1-20,000 حرف. يقص الخادم النص ويعيد 400 إذا أصبح فراغًا. يحدد الخادم الدور. | 201 `ConversationMessageResponse`; 400؛ 401/403/404. | `AddUserMessageForActiveTripAsync`; `AiConversations`, `AiConversationMessages`. |
+
+تتكون `ConversationResponse` من `id`, `tripId`, `title`, `createdAtUtc`, `updatedAtUtc`. تتكون `ConversationMessageResponse` من `id`, `role`, `content`, `createdAtUtc`. تُخزن القيم في الكيان كـ `DateTime` يملؤه `TimeProvider.GetUtcNow().UtcDateTime` للإنشاء والرسالة الجديدة.
+
+مثال body لإنشاء محادثة: `{"title":"خطة اليوم الأول"}`. مثال body لإضافة رسالة: `{"content":"ما الأنشطة القريبة من الفندق؟"}`. هذه الرسالة تسجل بدور `User`؛ لا ينشئ API ردًا تلقائيًا.
+
+## 7.5 عقود غير موجودة في API الحالي
+
+لا توجد endpoints لإضافة/تعديل/حذف الرحلات، أيام الرحلات، الأنشطة، UserPreferences، أو قاموس Interests وTripInterests. وجود جدول أو Entity لا يعني وجود endpoint له. ولا توجد endpoint مستقلة لتوليد رد AI أو خطة سفر.
+
+# الفصل 8: إدارة الرحلات وخطة الأيام
+
+## 8.1 ما الذي تم تنفيذه؟
+
+نموذج `Trip` يستطيع تخزين الوجهة، والميزانية والعملة، وعدد الأيام والمسافرين، وتاريخ البداية، و`Pace`، وتواريخ السجل. يوجد Endpointان للقراءة فقط، كلاهما يضمن أن المستخدم يقرأ رحلاته. `TripReadService` يعيد ملخصًا ولا يحمل الأيام أو الأنشطة.
+
+الكتابة إلى `Trips` و`TripDays` و`Activities` ممكنة من خلال EF model إذا استدعى كود داخلي ذلك، كما يثبت اختبار `TripGraphPersistenceTests` حفظ graph من Trip ويوم ونشاط واهتمام في `SaveChanges` واحد. لكن لا يوجد مسار HTTP لإدخال هذه البيانات؛ لذلك إنشاء الرحلات أو تعديلها أو حذفها للمستخدم **غير منفذ في API الحالي**.
+
+## 8.2 الحقول والقواعد الفعلية
+
+- `Budget >= 0`، والدقة `decimal(18,2)`.
+- `Currency` افتراضي `USD`، وقيد DB يتأكد أن طوله ثلاثة أحرف فقط؛ لا يتحقق من ISO currency أو الأحرف الكبيرة.
+- `DaysNumber` من 1 إلى 30، و`TravellersCount >= 1`.
+- `StartDate` من نوع `DateOnly`/SQL `date`، بلا وقت أو منطقة زمنية.
+- `Pace` إحدى `Relaxed`, `Balanced`, `Packed`، مخزنة كـ `nvarchar`.
+- يوجد فهرس غير فريد على `(UserId, StartDate)`؛ يسمح بتكرار الوجهة والتاريخ نفسه للمستخدم، حتى عند اختلاف الميزانية. اختبار `AllowsDuplicateDestinationAndStartDateForSameUser` يثبت ذلك.
+- `TripDay.DayNumber >= 1`، ورقم اليوم والتاريخ فريدان داخل الرحلة كل على حدة. لا يفرض المخطط اكتمال الأيام أو تطابقها مع `DaysNumber` ولا يحسب `WeekDay` آليًا.
+- `ActivityOrder >= 1` وفريد داخل اليوم. التكلفة غير سالبة. الوقتان اختياريان؛ إن وجدا فالنهاية بعد البداية. يمنع `AppDbContext` تداخل الأنشطة الكاملة الزمن عند الحفظ.
+- `ActivityType` يقبل القيم التسع المعرفة في enum، و`CostBasis` القيم الثلاث المعرفة في enum.
+
+لا توجد DTOs لكتابة Trips أو itinerary، ولذلك لا توجد قواعد تحقق HTTP لهذه العمليات. قواعد قاعدة البيانات واختبار persistence هي الدليل المتاح. لا يظهر مسار تحرير أو حذف نشاط أو يوم في Controllers.
+
+## 8.3 التفضيلات العامة مقابل اهتمامات رحلة محددة
+
+`UserPreferences` مرتبطة بالمستخدم، ومفتاح uniqueness هو `(UserId, Type, Interest)`. وهي نصوص عامة للمستخدم وليست قائمة من `Interest` بالضرورة. أما `TripInterests` فهي ربط من رحلة معينة إلى قاموس `Interests` المعاد استخدامه. يمكن أن تختلف اختيارات كل رحلة عن تفضيلات الحساب. لا توجد ميزة في الكود الحالي تمزج الاثنين أو تطبقها تلقائيًا لتوليد itinerary.
+
+# الفصل 9: Chatbot وإدارة المحادثات
+
+## 9.1 مكونات التنفيذ
+
+`AiConversations` رأس المحادثة ويحدد `TripId` و`UserId`; `AiConversationMessages` يخزن الرسائل مع enum `ConversationRole`. يمر الطلب من Controller إلى `IChatbotConversationService` ثم `ChatbotConversationService` التي تنفذ التحقق واستعلامات EF. FK المركب إلى الرحلة يجمع حماية قاعدة البيانات مع شروط الملكية في الخدمة.
+
+يستطيع API إنشاء محادثة بعنوان اختياري لرحلة نشطة، قراءة رؤوسها ورسائلها، حذف محادثة مملوكة، وإضافة نص من المستخدم. الترتيب يكون `CreatedAt` ثم `Id`. تضبط `UpdatedAt` عند إدخال رسالة جديدة، ولذلك تعرض قائمة المحادثات الأحدث تغييرًا أولًا.
+
+## 9.2 حدود الرحلة النشطة وتاريخ الانتهاء
+
+تعرف `Trip.IsActiveOn(date)` الفترة نصف المفتوحة: `StartDate <= date && date < StartDate.AddDays(DaysNumber)`. البداية مشمولة ويوم النهاية غير مشمول. `HasEndedOn(date)` صحيح حين يكون `StartDate + DaysNumber <= date`. الخدمات تستخدم التاريخ الحالي UTC كـ `DateOnly`؛ لا يُخزن وقت محلي للرحلة.
+
+على سبيل المثال، رحلة تبدأ 10 ديسمبر ومدتها يومان تشمل يومي 10 و11 ديسمبر؛ تصبح منتهية عند التاريخ 12 ديسمبر حسب التقويم الذي يستخدمه `UtcToday`. المثال يشرح قاعدة الكود، وليس سجل رحلة حقيقية.
+
+## 9.3 العامل الخلفي والحذف الدائم
+
+`ExpiredTripConversationCleanupWorker` هو `BackgroundService` مسجل في API. ينفذ دورة حذف فور بدء العامل ثم ينتظر ساعة (`CleanupInterval = TimeSpan.FromHours(1)`) ويكرر حتى إيقاف المضيف. لكل دورة ينشئ DI scope جديدًا للحصول على `AppDbContext` scoped. يلتقط الاستثناءات ويسجل الخطأ ثم يحاول في الدورة التالية؛ ويلتقط الإلغاء عند إيقاف التطبيق.
+
+تنفذ `ExpiredTripConversationCleanup.DeleteEndedConversationsAsync` شرطًا على الرحلة المرتبطة: `StartDate.AddDays(DaysNumber) <= utcToday`. تستخدم EF Core `ExecuteDeleteAsync` لتنفيذ DELETE مباشر على المحادثات التي انتهت رحلاتها. FK المحادثة إلى الرحلة Cascade، وFK الرسالة إلى المحادثة Cascade؛ لذا حذف المحادثة يحذف رسائلها في قاعدة البيانات. لا تؤرشف السجلات ولا تحتفظ بها بعد الحذف، ولا تحذف الرحلة نفسها.
+
+يعني التنفيذ أن التأخير بين نهاية الرحلة والحذف الفعلي قد يصل إلى فترة دورة تقريبية (ساعة) بالإضافة إلى وقت التشغيل؛ كما أن API يمنع القراءة/الإضافة فور اعتباره الرحلة منتهية ولو لم تنفذ دورة الحذف بعد. سلوك SQL Server الفعلي للعلاقة المتسلسلة لم يُتحقق منه على قاعدة حية ضمن هذه المهمة؛ الاختبارات الحالية تستخدم SQLite.
+
+## 9.4 UTC والقيود الزمنية
+
+وقت إنشاء المحادثة والرسالة يمر عبر `TimeProvider.GetUtcNow`. تاريخ النشاط يستخدم `DateOnly`، ويختار التطبيق يوم UTC نفسه للمقارنة والتنظيف. هذه السياسة متسقة في الكود لكنها قد تختلف عن اليوم المحلي للمسافر قرب منتصف الليل؛ لا توجد منطقة زمنية لكل رحلة أو مدينة. العامل يعمل كل ساعة وليس عند منتصف ليل محلي. تخزين `DateOnly` يفقد منطقة التوقيت عمدًا، لذا قرار اليوم عند أطراف المناطق الزمنية محدود بهذه السياسة.
+
+## 9.5 هل ينتج chatbot إجابة AI؟
+
+لا. `AddUserMessageForActiveTripAsync` ينشئ رسالة `ConversationRole.User` ويحدث الطابع الزمني فقط. لا يوجد كود يستدعي API خارجيًا، ولا يوجد تنفيذ يضيف `Assistant`، رغم وجود القيمة في enum وقيد DB يسمح بها. واجهة الخدمة اسمها chatbot لكنها حاليًا خدمة إدارة سجلات محادثة وتخزينها. تكامل المزود وتوليد الرد **غير منفذ**.
+
+# الفصل 10: الإعداد وبدء التطبيق
+
+## 10.1 ترتيب بدء التشغيل في Program.cs
+
+1. ينشئ `WebApplicationBuilder` ويحمّل مصادر الإعداد الافتراضية للبيئة.
+2. في Development فقط، إذا كان `Jwt:SigningKey` فارغًا، يضيف .NET User Secrets باستخدام `UserSecretsId` في `SkyMate.API.csproj`.
+3. يقرأ `JwtOptions` ويتحقق من `Issuer`, `Audience`, مفتاح بطول 32 بايت على الأقل ومدة موجبة. الفشل يوقف بدء التشغيل برسالة لا تتضمن المفتاح.
+4. يسجل Controllers وإعداد JSON: camelCase و`JsonStringEnumConverter`.
+5. يسجل `AddProblemDetails` وسياسة CORS `ConfiguredCors`، ويقرأ `Cors:AllowedOrigins`.
+6. ينفذ `AddInfrastructure` لتسجيل SQL Server وIdentity والخدمات.
+7. يسجل `ExpiredTripConversationCleanupWorker` كخدمة مستضافة.
+8. يسجل Bearer authentication والتحقق من التوقيع والعمر والجهة والجمهور، ثم Authorization.
+9. يسجل ApiExplorer وSwagger وBearer scheme و`AuthorizeOperationFilter`.
+10. يبني `app` ويرتب middleware: `UseExceptionHandler`, `UseHttpsRedirection`, `UseCors`, `UseAuthentication`, ثم `UseAuthorization`.
+11. في Development فقط يتيح Swagger UI وendpoint الجذر الذي يحول إلى `/swagger`.
+12. يربط Controllers، وينفذ `IdentityRoleSeeder.SeedAsync`، ثم يبدأ `RunAsync`.
+
+ترتيب المصادقة قبل التفويض ضروري: Authentication يكوّن `ClaimsPrincipal` من الرمز؛ Authorization يقرر هل claims والأدوار تسمح بالعملية. CORS يسبق وصول استجابة HTTP للعميل المتصفح، وException Handler يحيط تنفيذ بقية pipeline. لا تستدعي `Program.cs` `Database.Migrate()` تلقائيًا؛ يجب تطبيق migrations بأمر مستقل. زرع الأدوار يكتب إلى مخزن Identity عند بدء البرنامج، وبالتالي يحتاج اتصال قاعدة البيانات متاحًا.
+
+## 10.2 ملفات ومصادر الإعداد
+
+| المصدر | دوره في الحل | ما نعرفه من الملفات |
+|---|---|---|
+| `SkyMate.API/appsettings.json` | إعداد مشترك غير خاص بالبيئة | Logging، issuer=`SkyMate.API`، audience=`SkyMate.Client`، `ExpiryMinutes=60`، قائمة CORS فارغة، `AllowedHosts=*`. لا توجد connection string أو signing key هنا. |
+| `appsettings.Development.json` | إعداد Development | يضبط Default logging على Information وMicrosoft.AspNetCore على Warning؛ لا يضيف قاعدة بيانات أو مفتاحًا. |
+| Environment Variables | مصدر إعداد افتراضي في ASP.NET Core | اسم مثل `Jwt__SigningKey` يمثل `Jwt:SigningKey`، و`ConnectionStrings__DefaultConnection` يمثل connection string. لا تُوثق هنا أي قيمة. |
+| .NET User Secrets | قيم تطوير محلية خارج ملفات المشروع الملتزمة | معرف المشروع موجود في csproj. يضيفه `Program.cs` فقط إذا كانت البيئة Development وكان مفتاح JWT غير موجود. |
+
+ملاحظة تشغيلية: شرط تحميل User Secrets مرتبط بغياب مفتاح JWT. إذا جاء مفتاح JWT من Environment Variable بينما بقيت connection string في User Secrets وحدها، فلن ينفذ الشرط لإضافة User Secrets؛ عندها قد يعتبر البرنامج connection string مفقودة. اضبط مصادر الإعداد معًا أو راجع هذا الشرط قبل الاعتماد عليه في إعداد محلي. هذه ملاحظة من مسار الكود، وليست تأكيدًا أن إعداد مستخدم معين معطل.
+
+## 10.3 Swagger وCORS وLogging
+
+Swagger متاح فقط في Development، ويظهر عنوان `SkyMate API` وإصدار `v1`. يوجد تعريف Bearer من نوع HTTP، ويضيف operation filter متطلبات الأمن لعمليات `[Authorize]` ويضيف 401/403 إلى Swagger عند الحاجة. CORS يسمح بأي header وأي method للأصول المدرجة فقط عندما القائمة غير فارغة؛ القائمة المصدرية الحالية لا تحتوي أصولًا. إعداد Logging الافتراضي يسجل Information ويخفض سجلات `Microsoft.AspNetCore` إلى Warning. لا يظهر في الكود إعداد Serilog أو sink خارجي أو سياسة تنقيح خاصة لسجلات الرسائل.
+
+# الفصل 11: الأخطاء والتحقق من البيانات
+
+## 11.1 طبقات التحقق
+
+**تحقق DTO** يقع قبل استدعاء Controller بسبب `[ApiController]` وDataAnnotations. مثال: طول العنوان 200، ومحتوى الرسالة 1-20,000 حرف، وتأكيد كلمة المرور. **تحقق العمل** يحدث داخل Controller أو service: البريد المكرر 409، الدور الافتراضي server-side، ملكية الرحلة، وشرط الرحلة النشطة. **تحقق قاعدة البيانات** يبقى فعالًا حتى لو كتب مسار آخر إلى EF: فحوص الميزانية والمدة وعدد المسافرين وأنواع enums والتكرار والمفاتيح.
+
+هذه الطبقات لا تستبدل بعضها. DTO يمنع كثيرًا من الطلبات السيئة برد 400 مفهوم. Check Constraint يحمي البيانات من أي كتابة تتجاوز API. أما شرط الملكية فلا يمكن تمثيله بحقل DTO؛ يتم عبر استعلام الخدمة وFK المركب.
+
+## 11.2 نماذج من الردود
+
+- أخطاء DataAnnotations تعاد تلقائيًا كـ `ValidationProblemDetails` في 400.
+- أخطاء قواعد Identity في التسجيل يجمعها `AuthController` تحت مفاتيح `password` أو `email` في `ValidationProblemDetails`.
+- تكرار البريد يعاد كـ `ProblemDetails` بحالة 409.
+- فشل الدخول يعاد كـ 401 مع رسالة موحدة، من دون التفريق بين بريد غير موجود وكلمة مرور خاطئة.
+- مورد غير موجود أو غير مملوك يعاد غالبًا 404.
+- لا يوجد معالج مخصص يحول جميع استثناءات قاعدة البيانات أو `InvalidOperationException` إلى رمز مجال ثابت. `AddProblemDetails` مع `UseExceptionHandler` يتيح استجابة مشكلة افتراضية، لكن لا توجد خريطة أخطاء تفصيلية لكل نوع.
+
+## 11.3 فجوات تحقق ملحوظة
+
+`[Required]` لا يساوي دائمًا رفض نص يحتوي مسافات فقط. اسم المستخدم يقصه Controller بعد تحقق DTO لكن لا يعيد فحص طول الاسم بعد القص؛ لذلك النص الأبيض قد يصبح فارغًا. محتوى الرسالة يعاد فحصه بعد القص ويرفض إن فرغ. Currency يفحص طول 3 فقط. `CostBasis.Free` لا يفرض `EstimatedCost=0`. المخطط لا يفرض أن عدد `TripDays` يساوي `DaysNumber` أو أن تواريخ الأيام تقع ضمن المدة. هذه قيود مؤكدة من القواعد المطبقة حاليًا، وليست ادعاءً بفساد بيانات موجودة.
+
+# الفصل 12: الاختبارات
+
+## 12.1 البنية وأداة الاختبار
+
+المشروع `tests/SkyMate.UnitTests` يستهدف `net10.0` ويستخدم xUnit و`Microsoft.AspNetCore.Mvc.Testing`. اختبارات API تنشئ WebApplicationFactory وتختبر controllers/middleware وDI، بينما اختبارات persistence تنشئ SQLite in-memory باستخدام `EnsureCreatedAsync`. يتصل كل اختبار persistence بقاعدة ذاكرة واتصال مستقل ثم يتخلص منه، وهذا يعزل بيانات الاختبارات بعضها عن بعض.
+
+| مجموعة الاختبار | السلوك الذي تغطيه الملفات |
+|---|---|
+| `Authentication/AuthenticationEndpointTests.cs` | التسجيل وhash كلمة المرور والدور الافتراضي، زرع أدوار idempotent، duplicate email، رفض بيانات، JWT claims والتوقيع والمدة، رسالة دخول عامة، lockout بعد خمس محاولات، `/me`, التفويض حسب الدور، وSwagger Bearer. |
+| `Persistence/AppDbContextTests.cs` | وجود جداول Identity والتطبيق، المفاتيح والعلاقات والفهارس وحذف Cascade، enum conversion، FK المحادثة المركب، uniqueness وcheck constraints، السماح بتكرار الوجهة/التاريخ، ترتيب النشاط، تداخل الوقت، وحذف بيانات المستخدم مع الاحتفاظ بسجل Interest المشترك. |
+| `Persistence/TripGraphPersistenceTests.cs` | حفظ Trip مع يوم ونشاط واهتمام في عملية Save واحدة. |
+| `Chatbot/ChatbotLifecycleAndAuthorizationTests.cs` | حدود تاريخ الرحلة، ملكية الرحلة/المحادثة، منع بيانات رحلة أخرى أو منتهية، حذف التنظيف ورسائل المحادثة مع الإبقاء على النشطة، والرفض لرموز غير صالحة أو منتهية. |
+
+يوجد 26 تعريف `[Fact]` بحسب تعداد الملفات الحالية: 10 مصادقة، 9 في `AppDbContextTests`, اختبار graph واحد، و6 chatbot. هذا **عدد ثابت من المصدر فقط**؛ لا يعني أن 26 اختبارًا نجحوا في هذا التشغيل.
+
+## 12.2 قاعدة الاختبار وحدودها
+
+الاختبارات تستخدم SQLite وليس SQL Server. يضيف `SqliteTestContext` collation ودوال `LEN`, `DATALENGTH`, `LTRIM`, `RTRIM` لتقريب بعض القيود الخاصة بـ SQL Server. `EnsureCreated` يبني المخطط من EF model الحالي ولا يطبق ملفات migrations المتسلسلة. لذلك الاختبارات لا تثبت صحة SQL لكل migration أو تطبيقها/rollback على SQL Server، ولا تثبت وجود أو حالة قاعدة SkyMate حية.
+
+## 12.3 نتيجة تشغيل الاختبارات لهذه المهمة
+
+نفذ الأمر المطلوب `dotnet test SkyMate.slnx`. المحاولة الأولى توقفت بسبب رفض الوصول إلى سجل Windows أثناء تهيئة telemetry في dotnet CLI. أُعيدت المحاولة مع telemetry متوقف، لكنها انتهت برمز خروج 1 دون بدء الاختبارات. كما جُرب `dotnet test tests\SkyMate.UnitTests\SkyMate.UnitTests.csproj --verbosity normal`؛ بدأ restore ثم أنهى هدف Restore بالفشل قبل البناء، مع 0 تحذيرات و0 أخطاء معروضة في ملخص MSBuild. إصدار SDK الظاهر هو 11.0.100، بينما المشاريع تستهدف net10.0.
+
+بناءً على ذلك، **لم يصل التشغيل إلى مرحلة build أو test discovery/test execution**. عدد الاختبارات المنفذة/الناجحة/الفاشلة/المتخطاة في هذه المحاولة غير متاح؛ لا يصح تسجيله صفر نجاح أو نجاح جميع الاختبارات. يوجد 26 `[Fact]` في المصدر كما ذكر أعلاه. سبب فشل restore التفصيلي لم يظهر في مخرجات الطرفية، لذلك يبقى السبب بعد فشل الهدف غير متحقق منه. لم يعدل إعداد قاعدة الاختبار.
+
+# الفصل 13: الأمان
+
+## 13.1 تدابير موجودة في المصدر
+
+- **كلمات المرور:** `UserManager` يطبق PasswordHasher الخاص بـ ASP.NET Identity؛ يتعامل التطبيق مع كلمة المرور الخام عند إنشاء الحساب/مطابقتها ولا يخزنها بنفسها في entity. حقل `PasswordHash` في Identity هو hash.
+- **JWT:** يوقع HMAC-SHA256، يتحقق من issuer وaudience والتوقيع والعمر، ويستخدم مفتاحًا لا يقل عن 32 بايت. لا يضع المشروع المفتاح في `appsettings.json`.
+- **التفويض:** `[Authorize]` و`[Authorize(Roles="User")]` تحمي المسارات؛ مسارات عامة محدودة بعلامة `AllowAnonymous` للتسجيل والدخول.
+- **الملكية:** userId يأتي من `sub` وليس من body؛ خدمات الرحلات والمحادثات تضيف شروط المالك. FK مركب يمنع ربط محادثة برحلة مستخدم آخر.
+- **حماية تخزينية:** مفاتيح خارجية وقيود uniqueness وcheck constraints تمنع بيانات غير صالحة أو يتيمة في الحالات المحددة.
+- **إخفاء تفاصيل الدخول:** يستخدم الدخول رسالة واحدة للبريد المجهول وكلمة المرور الخاطئة والحساب المقفول.
+- **الأسرار:** توجيه في الخطأ لاستخدام User Secrets محليًا أو `Jwt__SigningKey` في بيئة تشغيل. ConnectionString مطلوب من الإعداد ولا يوجد في `appsettings.json`.
+- **النقل وCORS:** `UseHttpsRedirection` مفعل، وCORS مقيد بقائمة أصول عندما تكون محددة.
+- **أخطاء API:** يوجد `AddProblemDetails` و`UseExceptionHandler` لتقديم صيغة خطأ موحدة افتراضية.
+
+## 13.2 نواقص وتوصيات غير منفذة
+
+لم يُعثر على rate limiting خاص بالتسجيل والدخول، أو تأكيد بريد، أو استعادة كلمة مرور، أو refresh token/إبطال JWT، أو مصادقة متعددة العوامل، أو حماية إدارية لإصدار أدوار Admin. إعداد CORS الحالي لا يحتوي أي أصل Web. لم يُعثر على سياسة إخفاء لمحتوى الرسائل في logs؛ لا يظهر logging لمحتوى الرسالة في مسارها المعتاد. لا توجد اختبارات SQL Server فعلية أو فحص أمني آلي ضمن المشروع المفحوص. هذه فرص تحسين مستنتجة من غياب المسار في الملفات، وليست دليلًا على تعرض نشر معين لهجوم.
+

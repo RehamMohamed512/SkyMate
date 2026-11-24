@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="SkyMate.API/SkyMate.API.csproj" />
+  <Project Path="SkyMate.Application/SkyMate.Application.csproj" />
+  <Project Path="SkyMate.Domain/SkyMate.Domain.csproj" />
+  <Project Path="SkyMate.Infrastructure/SkyMate.Infrastructure.csproj" />
+  <Project Path="tests/SkyMate.UnitTests/SkyMate.UnitTests.csproj" />
+</Solution>

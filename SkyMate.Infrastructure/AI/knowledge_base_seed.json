@@ -1,0 +1,87 @@
+[
+  {
+    "title": "What is SkyMate",
+    "content": "The SkyMate backend provides account authentication, read-only APIs for user-owned trips and itineraries, and a text-based Travel Assistant. It does not expose endpoints to create or edit trips.",
+    "isActive": true
+  },
+  {
+    "title": "Itineraries",
+    "content": "A stored trip can include its destination, dates, duration, group budget and currency, traveler count, pace, interests, and day-by-day activities. Activities may include times, locations, types, estimated costs, and a cost basis. Costs are planning estimates, not confirmed booking prices. The assistant uses backend-provided totals and does not recalculate money.",
+    "isActive": true
+  },
+  {
+    "title": "Travel Assistant (chat)",
+    "content": "The Travel Assistant is a text chat that replies in Arabic or English. Conversations belong to the authenticated user and can exist without a trip. When a message includes a trip ID, the backend verifies ownership and supplies that trip context for that message only; it never links the conversation to the trip. The assistant cannot create or change trips and does not accept voice or image input.",
+    "isActive": true
+  },
+  {
+    "title": "Accounts and saved trips",
+    "content": "The API scopes trip and conversation access to the authenticated account. Deleting a conversation permanently deletes its messages. This backend does not expose an account-deletion endpoint.",
+    "isActive": true
+  },
+  {
+    "title": "What SkyMate does not do",
+    "content": "This backend does not implement trip creation or editing, bookings, payments, maps or navigation, live tracking, visa processing, translation, or Airport Guidance. General travel advice is disabled by default. If enabled, the assistant must label it as general advice and must not state prices or opening hours as facts.",
+    "isActive": true
+  },
+  {
+    "title": "Data and AI usage",
+    "content": "The Travel Assistant sends the current message, recent conversation history, system instructions, and any authorized trip context for that message to the configured external AI provider. The backend does not add account email or phone fields to that request, but personal information typed into chat may be sent. Avoid sharing sensitive personal information. The assistant uses backend-calculated money figures and does not calculate them.",
+    "isActive": true
+  },
+  {
+    "title": "About SkyMate",
+    "content": "SkyMate is a smart travel planning web and mobile app that helps users generate personalized day-by-day trip itineraries using AI, track expected trip budgets and activity costs, and get help through the SkyMate AI Assistant.",
+    "isActive": true
+  },
+  {
+    "title": "App Navigation Map",
+    "content": "Main screens in SkyMate: 1) [Home Screen]: overview and quick shortcuts. 2) [AI Trip Planner Screen]: create a new AI-generated trip. 3) [My Trips Screen]: view and manage all saved trips. 4) [AI Assistant Screen]: chat with the SkyMate AI Assistant. 5) [Profile / Settings Screen]: manage account details, language, currency, and logout.",
+    "isActive": true
+  },
+  {
+    "title": "How to Create a New Trip",
+    "content": "To create a new trip: 1) Open [AI Trip Planner Screen] from the main menu. 2) Enter your destination, start date, number of days, number of travelers, and total budget with currency. 3) Choose your travel preferences or interests if available. 4) Tap [Generate Trip Button] and wait a few seconds for the itinerary to load. 5) Tap [Save Trip Button] to keep it in [My Trips Screen].",
+    "isActive": true
+  },
+  {
+    "title": "How to View, Edit, or Delete a Trip",
+    "content": "To view a saved trip: go to [My Trips Screen] and tap the trip card to open its day-by-day itinerary and activities. To edit a trip: open the trip and tap [Edit Trip Button] (if editing is not supported, tell the user to create a new trip from [AI Trip Planner Screen]). To delete a trip: open the trip or swipe on it in [My Trips Screen] and tap [Delete Trip Button], then confirm.",
+    "isActive": true
+  },
+  {
+    "title": "Understanding Trip Budget and Activity Costs",
+    "content": "Each trip shows a total budget in the chosen currency and a day-by-day list of activities with expected costs. Activity costs are calculated either per person (multiplied by the number of travelers) or per group. All cost figures are estimates for planning purposes, not final booking prices.",
+    "isActive": true
+  },
+  {
+    "title": "How to Use the AI Assistant",
+    "content": "Users can chat with the SkyMate AI Assistant in two ways: 1) Trip Chat: open any trip from [My Trips Screen] and tap [Ask Assistant Button] so the assistant answers questions about that specific trip's schedule and costs. 2) General Chat: open [AI Assistant Screen] directly to ask general questions about how SkyMate works. Previous chats are saved under [Chat History Section].",
+    "isActive": true
+  },
+  {
+    "title": "Account Registration and Login",
+    "content": "To create an account: open [Sign Up Screen], enter your name, email, and password, then tap [Create Account Button]. To log in: open [Login Screen] and enter your email and password. If you forgot your password: tap [Forgot Password Link] on [Login Screen], enter your email, and follow the reset link sent to your inbox.",
+    "isActive": true
+  },
+  {
+    "title": "Profile and App Settings",
+    "content": "To update your name, email, or password: go to [Profile / Settings Screen] and tap [Edit Profile Button]. To change app language or default currency: go to [Profile / Settings Screen] and select [Language / Currency Option]. To log out: scroll down in [Profile / Settings Screen] and tap [Logout Button]. To delete your account: go to [Account Settings] and tap [Delete Account Button].",
+    "isActive": true
+  },
+  {
+    "title": "What SkyMate Does Not Do (Limitations)",
+    "content": "SkyMate is a trip planning and assistance app only. It does NOT directly book flights, hotels, or tickets, and it does NOT process online payments or refunds. Users should use the generated itinerary as a guide and book flights or hotels through their preferred booking websites or airlines.",
+    "isActive": true
+  },
+  {
+    "title": "Troubleshooting Common Issues",
+    "content": "If trip generation fails or takes too long: check your internet connection, make sure all required fields (destination, dates, budget) are filled, and tap [Generate Trip Button] again. If the AI Assistant says it is temporarily unavailable or rate-limited: wait a minute and resend your message. If your saved trips do not appear: pull down to refresh [My Trips Screen] or log out and log back in.",
+    "isActive": true
+  },
+  {
+    "title": "Contact and Technical Support",
+    "content": "If a user faces a bug, account issue, or needs further help, direct them to [Contact Us / Help Screen] inside [Profile / Settings Screen] or email the SkyMate support team at [support@skymate.com].",
+    "isActive": true
+  }
+]
