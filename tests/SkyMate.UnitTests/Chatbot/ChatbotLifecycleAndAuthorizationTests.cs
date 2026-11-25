@@ -391,10 +391,12 @@ public sealed class ChatbotLifecycleAndAuthorizationTests : IDisposable
         await LoginAsync(email);
         var seed = await _client.PostAsJsonAsync("/api/v1/admin/assistant/knowledge-base/seed-defaults", new { });
         Assert.Equal(HttpStatusCode.OK, seed.StatusCode);
-        Assert.Contains("\"added\":6", await seed.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"added\":0", await seed.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"alreadyPresent\":17", await seed.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
         var repeatSeed = await _client.PostAsJsonAsync("/api/v1/admin/assistant/knowledge-base/seed-defaults", new { });
         Assert.Equal(HttpStatusCode.OK, repeatSeed.StatusCode);
         Assert.Contains("\"added\":0", await repeatSeed.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"alreadyPresent\":17", await repeatSeed.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
 
         var create = await _client.PostAsJsonAsync(
             "/api/v1/admin/assistant/knowledge-base",
@@ -412,8 +414,8 @@ public sealed class ChatbotLifecycleAndAuthorizationTests : IDisposable
 
         using var verifyScope = _factory.Services.CreateScope();
         var context = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
-        Assert.Equal(7, await context.KnowledgeBaseEntries.CountAsync());
-        Assert.Equal(6, await context.KnowledgeBaseEntries.CountAsync(entry => entry.IsActive));
+        Assert.Equal(18, await context.KnowledgeBaseEntries.CountAsync());
+        Assert.Equal(17, await context.KnowledgeBaseEntries.CountAsync(entry => entry.IsActive));
         Assert.False(await context.KnowledgeBaseEntries.AnyAsync(entry => entry.Id == createdEntry.Id && entry.IsActive));
         Assert.True(await context.Users.AnyAsync(user => user.Id == adminId));
     }
