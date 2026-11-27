@@ -11,12 +11,12 @@
   },
   {
     "title": "Travel Assistant (chat)",
-    "content": "The Travel Assistant is a text chat that replies in Arabic or English. Conversations belong to the authenticated user and can exist without a trip. When a message includes a trip ID, the backend verifies ownership and supplies that trip context for that message only; it never links the conversation to the trip. The assistant cannot create or change trips and does not accept voice or image input.",
+    "content": "The Travel Assistant is a text chat that replies in Arabic or English. Each newly created conversation belongs to the authenticated user and is associated with one of that user's trips. The backend verifies trip ownership when creating the conversation and uses its saved trip as context for every message. Conversations and messages remain available after the trip ends until the user explicitly deletes the conversation. The assistant cannot create or change trips and does not accept voice or image input.",
     "isActive": true
   },
   {
     "title": "Accounts and saved trips",
-    "content": "The API scopes trip and conversation access to the authenticated account. Deleting a conversation permanently deletes its messages. This backend does not expose an account-deletion endpoint.",
+    "content": "The API scopes trip and conversation access to the authenticated account. Deleting a conversation permanently deletes its messages. Removing a user account permanently removes that user's trips, conversations, messages, and dependent data. This backend does not expose an account-deletion endpoint.",
     "isActive": true
   },
   {

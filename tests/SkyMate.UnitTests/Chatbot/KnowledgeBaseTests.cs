@@ -23,23 +23,23 @@ public sealed class KnowledgeBaseTests
             var first = await seeder.SeedDefaultsAsync();
             var second = await seeder.SeedDefaultsAsync();
 
-            Assert.Equal(6, first.Added);
+            Assert.Equal(17, first.Added);
             Assert.Equal(0, first.AlreadyPresent);
             Assert.Equal(0, second.Added);
-            Assert.Equal(6, second.AlreadyPresent);
-            Assert.Equal(6, await dbContext.KnowledgeBaseEntries.CountAsync());
-            Assert.Equal(6, await dbContext.KnowledgeBaseEntries.CountAsync(entry => entry.IsActive));
+            Assert.Equal(17, second.AlreadyPresent);
+            Assert.Equal(17, await dbContext.KnowledgeBaseEntries.CountAsync());
+            Assert.Equal(17, await dbContext.KnowledgeBaseEntries.CountAsync(entry => entry.IsActive));
             Assert.Equal(0, await dbContext.KnowledgeBaseEntries.CountAsync(entry => !entry.IsActive));
             var titles = await dbContext.KnowledgeBaseEntries.Select(entry => entry.Title).ToListAsync();
             Assert.DoesNotContain(titles, title => title.Contains("Translation", StringComparison.OrdinalIgnoreCase));
             Assert.DoesNotContain(titles, title => title.Contains("Airport", StringComparison.OrdinalIgnoreCase));
             Assert.DoesNotContain(titles, title => title.Contains("Planner", StringComparison.OrdinalIgnoreCase));
-            Assert.Equal(6, (await provider.GetActiveAsync()).Count);
+            Assert.Equal(17, (await provider.GetActiveAsync()).Count);
         }
     }
 
     [Fact]
-    public async Task SeededAssistantContentDescribesMessageScopedTripsAndDoesNotPromisePersonalDataFiltering()
+    public async Task SeededAssistantContentDescribesTripRetentionAndDoesNotPromisePersonalDataFiltering()
     {
         var (connection, dbContext) = await SqliteTestContext.CreateAsync();
         await using (connection)
@@ -49,9 +49,9 @@ public sealed class KnowledgeBaseTests
 
             var assistant = await dbContext.KnowledgeBaseEntries
                 .SingleAsync(entry => entry.Title == "Travel Assistant (chat)");
-            Assert.Contains("message only", assistant.Content, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("never links the conversation to the trip", assistant.Content, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("conversation can be linked to a specific trip", assistant.Content, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("associated with one of that user's trips", assistant.Content, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("after the trip ends", assistant.Content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("can exist without a trip", assistant.Content, StringComparison.OrdinalIgnoreCase);
 
             var privacy = await dbContext.KnowledgeBaseEntries
                 .SingleAsync(entry => entry.Title == "Data and AI usage");
@@ -90,11 +90,11 @@ public sealed class KnowledgeBaseTests
             var result = await seeder.SeedDefaultsAsync();
 
             var existing = await dbContext.KnowledgeBaseEntries.SingleAsync(entry => entry.Title == "What is SkyMate");
-            Assert.Equal(5, result.Added);
+            Assert.Equal(16, result.Added);
             Assert.Equal(1, result.AlreadyPresent);
             Assert.Equal("Administrator-approved replacement text.", existing.Content);
             Assert.False(existing.IsActive);
-            Assert.Equal(6, await dbContext.KnowledgeBaseEntries.CountAsync());
+            Assert.Equal(17, await dbContext.KnowledgeBaseEntries.CountAsync());
         }
     }
 
@@ -115,8 +115,8 @@ public sealed class KnowledgeBaseTests
             var result = await seeder.SeedDefaultsAsync();
 
             Assert.Equal(0, result.Added);
-            Assert.Equal(6, result.AlreadyPresent);
-            Assert.Equal(6, await dbContext.KnowledgeBaseEntries.CountAsync());
+            Assert.Equal(17, result.AlreadyPresent);
+            Assert.Equal(17, await dbContext.KnowledgeBaseEntries.CountAsync());
             Assert.Equal("Administrator edited content remains authoritative.", entry.Content);
             Assert.Equal("SkyMate overview, approved by admin", entry.Title);
         }
@@ -134,11 +134,11 @@ public sealed class KnowledgeBaseTests
             var service = new KnowledgeBaseService(dbContext, provider, new KnowledgeBaseSeeder(dbContext));
             await service.SeedDefaultsAsync();
 
-            Assert.Equal(6, (await service.GetActiveAsync()).Count);
+            Assert.Equal(17, (await service.GetActiveAsync()).Count);
             var entry = await dbContext.KnowledgeBaseEntries.SingleAsync(item => item.Title == "What is SkyMate");
             Assert.True(await service.DeactivateAsync(entry.Id));
-            Assert.Equal(5, (await service.GetActiveAsync()).Count);
-            Assert.Equal(6, (await service.ListAsync()).Count);
+            Assert.Equal(16, (await service.GetActiveAsync()).Count);
+            Assert.Equal(17, (await service.ListAsync()).Count);
         }
     }
 }

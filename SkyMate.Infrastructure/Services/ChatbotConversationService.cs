@@ -29,21 +29,32 @@ public sealed class ChatbotConversationService(
         .ThenByDescending(conversation => conversation.Id)
         .Select(conversation => new ConversationSummary(
             conversation.Id,
+            conversation.TripId,
             conversation.Title,
             conversation.CreatedAt,
             conversation.UpdatedAt))
         .ToListAsync(cancellationToken);
 
     /// <inheritdoc />
-    public async Task<ConversationSummary> CreateForUserAsync(
+    public async Task<ConversationSummary?> CreateForUserAsync(
         int userId,
+        int tripId,
         string? title,
         CancellationToken cancellationToken = default)
     {
+        var ownsTrip = await dbContext.Trips
+            .AsNoTracking()
+            .AnyAsync(trip => trip.Id == tripId && trip.UserId == userId, cancellationToken);
+        if (!ownsTrip)
+        {
+            return null;
+        }
+
         var now = UtcNow();
         var conversation = new AiConversation
         {
             UserId = userId,
+            TripId = tripId,
             Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim(),
             CreatedAt = now,
             UpdatedAt = now
@@ -63,6 +74,7 @@ public sealed class ChatbotConversationService(
         .Where(conversation => conversation.Id == conversationId && conversation.UserId == userId)
         .Select(conversation => new ConversationSummary(
             conversation.Id,
+            conversation.TripId,
             conversation.Title,
             conversation.CreatedAt,
             conversation.UpdatedAt))
@@ -109,7 +121,6 @@ public sealed class ChatbotConversationService(
         int conversationId,
         int userId,
         string content,
-        int? tripId,
         CancellationToken cancellationToken = default)
     {
         var conversation = await dbContext.AiConversations
@@ -121,11 +132,11 @@ public sealed class ChatbotConversationService(
         }
 
         AssistantTripContext? tripContext = null;
-        if (tripId.HasValue)
+        if (conversation.TripId.HasValue)
         {
             var trip = await dbContext.Trips
                 .AsNoTracking()
-                .Where(item => item.Id == tripId.Value && item.UserId == userId)
+                .Where(item => item.Id == conversation.TripId.Value && item.UserId == userId)
                 .AsSplitQuery()
                 .Include(item => item.TripInterests)
                     .ThenInclude(link => link.Interest)
@@ -137,7 +148,7 @@ public sealed class ChatbotConversationService(
                 return null;
             }
 
-            // This context belongs only to this request. TripId is not persisted on the conversation or messages.
+            // The conversation's saved trip is the context for each turn; callers cannot swap trips.
             tripContext = AssistantTripContextMapper.Map(trip);
         }
 
@@ -200,6 +211,7 @@ public sealed class ChatbotConversationService(
 
     private static ConversationSummary ToSummary(AiConversation conversation) => new(
         conversation.Id,
+        conversation.TripId,
         conversation.Title,
         conversation.CreatedAt,
         conversation.UpdatedAt);

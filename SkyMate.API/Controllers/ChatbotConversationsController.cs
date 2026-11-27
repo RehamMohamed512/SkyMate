@@ -33,10 +33,11 @@ public sealed class ChatbotConversationsController(IChatbotConversationService c
         return Ok(conversations.Select(ToResponse).ToArray());
     }
 
-    /// <summary>Creates and immediately persists a conversation for the authenticated user.</summary>
+    /// <summary>Creates a conversation associated with an owned trip.</summary>
     [HttpPost]
     [ProducesResponseType(typeof(ConversationResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> Create(
@@ -51,8 +52,13 @@ public sealed class ChatbotConversationsController(IChatbotConversationService c
 
         var conversation = await conversationService.CreateForUserAsync(
             userId.Value,
+            request.TripId,
             request.Title,
             cancellationToken);
+        if (conversation is null)
+        {
+            return NotFound();
+        }
         return CreatedAtAction(nameof(Get), new { id = conversation.Id }, ToResponse(conversation));
     }
 
@@ -131,7 +137,6 @@ public sealed class ChatbotConversationsController(IChatbotConversationService c
             id,
             userId.Value,
             content,
-            request.TripId,
             cancellationToken);
         if (turn is null)
         {
@@ -164,6 +169,7 @@ public sealed class ChatbotConversationsController(IChatbotConversationService c
 
     private static ConversationResponse ToResponse(ConversationSummary conversation) => new(
         conversation.Id,
+        conversation.TripId,
         conversation.Title,
         conversation.CreatedAt,
         conversation.UpdatedAt);

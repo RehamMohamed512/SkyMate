@@ -23,6 +23,8 @@ public sealed class Trip
 
     public ICollection<TripDay> Days { get; set; } = new List<TripDay>();
     public ICollection<TripInterest> TripInterests { get; set; } = new List<TripInterest>();
+    /// <summary>Conversations associated with this trip.</summary>
+    public ICollection<AiConversation> Conversations { get; set; } = new List<AiConversation>();
 
     /// <summary>
     /// Checks whether the trip is active on a date. The start date is included and the

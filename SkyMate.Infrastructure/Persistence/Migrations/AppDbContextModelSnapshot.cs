@@ -239,6 +239,9 @@ namespace SkyMate.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<int?>("TripId")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
@@ -248,6 +251,8 @@ namespace SkyMate.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("UserId", "UpdatedAt");
+
+                    b.HasIndex("TripId", "UserId", "CreatedAt");
 
                     b.ToTable("AiConversations", (string)null);
                 });
@@ -664,6 +669,14 @@ namespace SkyMate.Infrastructure.Persistence.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("SkyMate.Domain.Entities.Trip", "Trip")
+                        .WithMany("Conversations")
+                        .HasForeignKey("TripId", "UserId")
+                        .HasPrincipalKey("Id", "UserId")
+                        .OnDelete(DeleteBehavior.ClientNoAction);
+
+                    b.Navigation("Trip");
                 });
 
             modelBuilder.Entity("SkyMate.Domain.Entities.AiConversationMessage", b =>
@@ -737,6 +750,8 @@ namespace SkyMate.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("SkyMate.Domain.Entities.Trip", b =>
                 {
+                    b.Navigation("Conversations");
+
                     b.Navigation("Days");
 
                     b.Navigation("TripInterests");
