@@ -148,10 +148,10 @@ public partial class Program
         app.UseAuthorization();
         app.UseRateLimiter();
 
-        if (app.Environment.IsDevelopment())
+        if (app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>("Swagger:Enabled"))
         {
             app.UseSwagger();
-            app.UseSwaggerUI();
+            app.UseSwaggerUI(options => options.RoutePrefix = "swagger");
             app.MapGet("/", () => Results.Redirect("/swagger"))
                 .ExcludeFromDescription();
         }
