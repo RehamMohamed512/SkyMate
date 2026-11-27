@@ -39,7 +39,7 @@ public sealed class KnowledgeBaseTests
     }
 
     [Fact]
-    public async Task SeededAssistantContentDescribesMessageScopedTripsAndDoesNotPromisePersonalDataFiltering()
+    public async Task SeededAssistantContentDescribesTripRetentionAndDoesNotPromisePersonalDataFiltering()
     {
         var (connection, dbContext) = await SqliteTestContext.CreateAsync();
         await using (connection)
@@ -49,9 +49,9 @@ public sealed class KnowledgeBaseTests
 
             var assistant = await dbContext.KnowledgeBaseEntries
                 .SingleAsync(entry => entry.Title == "Travel Assistant (chat)");
-            Assert.Contains("message only", assistant.Content, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("never links the conversation to the trip", assistant.Content, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("conversation can be linked to a specific trip", assistant.Content, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("associated with one of that user's trips", assistant.Content, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("after the trip ends", assistant.Content, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("can exist without a trip", assistant.Content, StringComparison.OrdinalIgnoreCase);
 
             var privacy = await dbContext.KnowledgeBaseEntries
                 .SingleAsync(entry => entry.Title == "Data and AI usage");

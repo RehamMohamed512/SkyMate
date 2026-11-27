@@ -69,13 +69,23 @@ public sealed class AppDbContextTests
                 {
                     nameof(AiConversation.UserId), nameof(AiConversation.UpdatedAt)
                 }));
+            Assert.Contains(conversationType.GetIndexes(), index =>
+                index.Properties.Select(property => property.Name).SequenceEqual(new[]
+                {
+                    nameof(AiConversation.TripId), nameof(AiConversation.UserId), nameof(AiConversation.CreatedAt)
+                }));
             Assert.Equal(DeleteBehavior.Cascade, conversationType.GetForeignKeys()
                 .Single(foreignKey => foreignKey.Properties.Select(property => property.Name)
                     .SequenceEqual(new[] { nameof(AiConversation.UserId) })).DeleteBehavior);
             Assert.Equal(typeof(ApplicationUser), conversationType.GetForeignKeys()
-                .Single(foreignKey => foreignKey.Properties.Any(property => property.Name == nameof(AiConversation.UserId)))
+                .Single(foreignKey => foreignKey.Properties.Select(property => property.Name)
+                    .SequenceEqual(new[] { nameof(AiConversation.UserId) }))
                 .PrincipalEntityType.ClrType);
-            Assert.DoesNotContain(conversationType.GetForeignKeys(), foreignKey => foreignKey.PrincipalEntityType.ClrType == typeof(Trip));
+            var conversationTripForeignKey = conversationType.GetForeignKeys()
+                .Single(foreignKey => foreignKey.Properties.Select(property => property.Name)
+                    .SequenceEqual(new[] { nameof(AiConversation.TripId), nameof(AiConversation.UserId) }));
+            Assert.Equal(typeof(Trip), conversationTripForeignKey.PrincipalEntityType.ClrType);
+            Assert.Equal(DeleteBehavior.ClientNoAction, conversationTripForeignKey.DeleteBehavior);
             var messageType = context.Model.FindEntityType(typeof(AiConversationMessage))!;
             Assert.Equal(DeleteBehavior.Cascade, messageType.GetForeignKeys()
                 .Single(foreignKey => foreignKey.Properties.Any(property => property.Name == nameof(AiConversationMessage.ConversationId)))
@@ -83,9 +93,9 @@ public sealed class AppDbContextTests
         }
     }
 
-    /// <summary>Checks that conversations can be persisted without trips and survive trip deletion.</summary>
+    /// <summary>Checks that a trip cannot be deleted while a retained conversation references it.</summary>
     [Fact]
-    public async Task ConversationHasNoTripDependencyAndSurvivesTripDeletion()
+    public async Task ConversationTripDependencyPreventsDeletingRetainedConversationHistory()
     {
         var (connection, context) = await SqliteTestContext.CreateAsync();
         await using (connection)
@@ -102,14 +112,15 @@ public sealed class AppDbContextTests
             var conversation = new AiConversation
             {
                 UserId = owner.Id,
-                Title = "No trip reference",
-                Messages = [new AiConversationMessage { Role = ConversationRole.User, Content = "Saved independently." }]
+                TripId = trip.Id,
+                Title = "Retained trip conversation",
+                Messages = [new AiConversationMessage { Role = ConversationRole.User, Content = "Saved with its trip." }]
             };
             context.AiConversations.Add(conversation);
             await context.SaveChangesAsync();
 
             context.Trips.Remove(trip);
-            await context.SaveChangesAsync();
+            await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
 
             Assert.True(await context.AiConversations.AnyAsync(item => item.Id == conversation.Id));
             Assert.True(await context.AiConversationMessages.AnyAsync(item => item.ConversationId == conversation.Id));

@@ -11,8 +11,9 @@ public interface IChatbotConversationService
         CancellationToken cancellationToken = default);
 
     /// <summary>Creates and persists a conversation for the owner.</summary>
-    Task<ConversationSummary> CreateForUserAsync(
+    Task<ConversationSummary?> CreateForUserAsync(
         int userId,
+        int tripId,
         string? title,
         CancellationToken cancellationToken = default);
 
@@ -39,6 +40,5 @@ public interface IChatbotConversationService
         int conversationId,
         int userId,
         string content,
-        int? tripId,
         CancellationToken cancellationToken = default);
 }

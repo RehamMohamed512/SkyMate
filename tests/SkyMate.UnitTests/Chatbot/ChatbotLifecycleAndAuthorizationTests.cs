@@ -17,7 +17,7 @@ using SkyMate.UnitTests.Authentication;
 
 namespace SkyMate.UnitTests.Chatbot;
 
-/// <summary>HTTP and persistence tests for user-owned, trip-independent conversations.</summary>
+/// <summary>HTTP and persistence tests for user-owned, trip-associated conversations.</summary>
 public sealed class ChatbotLifecycleAndAuthorizationTests : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -26,14 +26,16 @@ public sealed class ChatbotLifecycleAndAuthorizationTests : IDisposable
     };
     private readonly AuthApiFactory _factory = new();
     private readonly HttpClient _client;
+    private readonly Dictionary<string, int> _registeredUserIds = new(StringComparer.OrdinalIgnoreCase);
+    private int? _currentUserId;
 
     public ChatbotLifecycleAndAuthorizationTests() => _client = _factory.CreateClient();
 
     [Fact]
-    public async Task UserCanCreateConversationsWithoutTripsAndListThemByUpdatedAt()
+    public async Task UserCanCreateTripConversationsAndListThemByUpdatedAt()
     {
-        await RegisterAsync("no-trips@example.com");
-        await LoginAsync("no-trips@example.com");
+        await RegisterAsync("trip-list@example.com");
+        await LoginAsync("trip-list@example.com");
 
         var first = await CreateConversationAsync("First conversation");
         var second = await CreateConversationAsync("Second conversation");
@@ -53,7 +55,8 @@ public sealed class ChatbotLifecycleAndAuthorizationTests : IDisposable
         Assert.NotNull(conversations);
         Assert.Equal(first.Id, conversations[0].Id);
         Assert.Equal(second.Id, conversations[1].Id);
-        Assert.DoesNotContain("tripId", await listResponse.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(first.TripId, conversations[0].TripId);
+        Assert.Equal(second.TripId, conversations[1].TripId);
 
         using var readScope = _factory.Services.CreateScope();
         var readContext = readScope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -123,9 +126,8 @@ public sealed class ChatbotLifecycleAndAuthorizationTests : IDisposable
         using (var scope = _factory.Services.CreateScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var trip = AddTrip(userId, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(1));
+            var trip = await context.Trips.SingleAsync(item => item.Id == conversation.TripId);
             trip.Destination = "ConfidentialDestination";
-            context.Trips.Add(trip);
             context.AiConversationMessages.AddRange(
                 new AiConversationMessage
                 {
@@ -172,16 +174,15 @@ public sealed class ChatbotLifecycleAndAuthorizationTests : IDisposable
         Assert.DoesNotContain(request.Messages, message => message.Content.StartsWith("Old ", StringComparison.Ordinal));
         var serializedRequest = JsonSerializer.Serialize(request);
         Assert.DoesNotContain("history-window@example.com", serializedRequest, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("ConfidentialDestination", serializedRequest, StringComparison.Ordinal);
+        Assert.Contains("ConfidentialDestination", serializedRequest, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task TripContextIsOwnerCheckedAndOnlyAppliesToTheMessageThatSuppliedIt()
+    public async Task TripContextIsOwnerCheckedAndUsesTheConversationTripForEveryMessage()
     {
         var ownerId = await RegisterAsync("trip-context-owner@example.com");
-        await RegisterAsync("trip-context-other@example.com");
+        var otherId = await RegisterAsync("trip-context-other@example.com");
         await LoginAsync("trip-context-owner@example.com");
-        var ownerConversation = await CreateConversationAsync("Trip questions");
         int tripId;
 
         using (var scope = _factory.Services.CreateScope())
@@ -219,9 +220,11 @@ public sealed class ChatbotLifecycleAndAuthorizationTests : IDisposable
             tripId = trip.Id;
         }
 
+        var ownerConversation = await CreateConversationAsync("Trip questions", tripId);
+
         var tripMessage = await _client.PostAsJsonAsync(
             $"/api/v1/conversations/{ownerConversation.Id}/messages",
-            new { content = "ما تكلفة المتحف؟", tripId });
+            new { content = "ما تكلفة المتحف؟" });
         Assert.Equal(HttpStatusCode.Created, tripMessage.StatusCode);
 
         using (var scope = _factory.Services.CreateScope())
@@ -246,26 +249,29 @@ public sealed class ChatbotLifecycleAndAuthorizationTests : IDisposable
             var provider = scope.ServiceProvider.GetRequiredService<TestAssistantLlmClient>();
             var request = provider.Requests.Last();
             Assert.Equal("What does SkyMate do?", request.Messages.Last().Content);
-            Assert.Contains("Trip context is valid only for the current message", request.SystemInstruction, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("CURRENT TRIP CONTEXT JSON FOR THIS MESSAGE (null", request.SystemInstruction, StringComparison.Ordinal);
-            Assert.DoesNotContain("TripContextDestination", request.SystemInstruction, StringComparison.Ordinal);
-            Assert.DoesNotContain("Museums", request.SystemInstruction, StringComparison.Ordinal);
+            Assert.Contains("TripContextDestination", request.SystemInstruction, StringComparison.Ordinal);
+            Assert.Contains("Museums", request.SystemInstruction, StringComparison.Ordinal);
         }
 
         await LoginAsync("trip-context-other@example.com");
         var otherConversation = await CreateConversationAsync("No other user's trip");
-        var previousRequestCount = await GetProviderRequestCountAsync();
-        var crossUserTrip = await _client.PostAsJsonAsync(
+        var otherMessage = await _client.PostAsJsonAsync(
             $"/api/v1/conversations/{otherConversation.Id}/messages",
-            new { content = "Show me that itinerary", tripId });
-        Assert.Equal(HttpStatusCode.NotFound, crossUserTrip.StatusCode);
-        Assert.Equal(previousRequestCount, await GetProviderRequestCountAsync());
+            new { content = "Show me my itinerary" });
+        Assert.Equal(HttpStatusCode.Created, otherMessage.StatusCode);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var provider = scope.ServiceProvider.GetRequiredService<TestAssistantLlmClient>();
+            Assert.DoesNotContain("TripContextDestination", provider.Requests.Last().SystemInstruction, StringComparison.Ordinal);
+        }
 
         using var verifyScope = _factory.Services.CreateScope();
         var verifyContext = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
-        Assert.Null(typeof(AiConversation).GetProperty("TripId"));
+        Assert.Equal(tripId, (await verifyContext.AiConversations.SingleAsync(item => item.Id == ownerConversation.Id)).TripId);
         Assert.Null(typeof(AiConversationMessage).GetProperty("TripId"));
         Assert.Equal(4, await verifyContext.AiConversationMessages.CountAsync(message => message.ConversationId == ownerConversation.Id));
+        Assert.True(await verifyContext.Trips.AnyAsync(item => item.Id == tripId && item.UserId == ownerId));
+        Assert.True(await verifyContext.Trips.AnyAsync(item => item.UserId == otherId));
     }
 
     [Fact]
@@ -474,6 +480,47 @@ public sealed class ChatbotLifecycleAndAuthorizationTests : IDisposable
     }
 
     [Fact]
+    public async Task ExistingConversationWithoutRecoverableTripLinkRemainsReadableAndDeletable()
+    {
+        var userId = await RegisterAsync("legacy-conversation@example.com");
+        await LoginAsync("legacy-conversation@example.com");
+        int conversationId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var conversation = new AiConversation
+            {
+                UserId = userId,
+                Title = "Legacy history",
+                Messages = [new AiConversationMessage
+                {
+                    Role = ConversationRole.User,
+                    Content = "Keep this existing history."
+                }]
+            };
+            context.AiConversations.Add(conversation);
+            await context.SaveChangesAsync();
+            conversationId = conversation.Id;
+        }
+
+        var listResponse = await _client.GetAsync("/api/v1/conversations");
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        Assert.Contains((await listResponse.Content.ReadFromJsonAsync<ConversationResponse[]>(JsonOptions))!,
+            item => item.Id == conversationId && item.TripId is null);
+        var messagesResponse = await _client.GetAsync($"/api/v1/conversations/{conversationId}/messages");
+        Assert.Equal(HttpStatusCode.OK, messagesResponse.StatusCode);
+        Assert.Equal("Keep this existing history.", (await messagesResponse.Content
+            .ReadFromJsonAsync<ConversationMessageResponse[]>(JsonOptions))!.Single().Content);
+
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await _client.DeleteAsync($"/api/v1/conversations/{conversationId}")).StatusCode);
+        using var verifyScope = _factory.Services.CreateScope();
+        var verifyContext = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.False(await verifyContext.AiConversations.AnyAsync(item => item.Id == conversationId));
+        Assert.False(await verifyContext.AiConversationMessages.AnyAsync(item => item.ConversationId == conversationId));
+    }
+
+    [Fact]
     public async Task GeminiContinuationMetadataIsPersistedPrivatelyAndNeverReturnedByMessagesApi()
     {
         await RegisterAsync("provider-metadata@example.com");
@@ -504,28 +551,108 @@ public sealed class ChatbotLifecycleAndAuthorizationTests : IDisposable
     }
 
     [Fact]
-    public async Task ConversationRemainsAvailableAfterTripEndsAndTripIsDeleted()
+    public async Task CompletedTripConversationAndMessagesRemainAvailableAndProtectTheirTrip()
     {
-        var userId = await RegisterAsync("trip-independent@example.com");
-        await LoginAsync("trip-independent@example.com");
-        var conversation = await CreateConversationAsync("No trip relationship");
-
+        var userId = await RegisterAsync("completed-trip@example.com");
+        await LoginAsync("completed-trip@example.com");
+        int tripId;
         using (var scope = _factory.Services.CreateScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var trip = AddTrip(userId, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-10));
+            trip.Destination = "Completed destination";
             context.Trips.Add(trip);
             await context.SaveChangesAsync();
-            context.Trips.Remove(trip);
-            await context.SaveChangesAsync();
+            tripId = trip.Id;
+            Assert.True(trip.HasEndedOn(DateOnly.FromDateTime(DateTime.UtcNow)));
         }
 
-        Assert.Equal(HttpStatusCode.OK,
-            (await _client.GetAsync($"/api/v1/conversations/{conversation.Id}")).StatusCode);
+        var conversation = await CreateConversationAsync("Completed trip", tripId);
         Assert.Equal(HttpStatusCode.Created,
             (await _client.PostAsJsonAsync(
                 $"/api/v1/conversations/{conversation.Id}/messages",
-                new { content = "Continue with no trip." })).StatusCode);
+                new { content = "Keep this completed-trip history." })).StatusCode);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var trip = await context.Trips.SingleAsync(item => item.Id == tripId);
+            context.Trips.Remove(trip);
+            await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
+        }
+
+        var listResponse = await _client.GetAsync("/api/v1/conversations");
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        Assert.Contains((await listResponse.Content.ReadFromJsonAsync<ConversationResponse[]>(JsonOptions))!,
+            item => item.Id == conversation.Id && item.TripId == tripId);
+        Assert.Equal(HttpStatusCode.OK,
+            (await _client.GetAsync($"/api/v1/conversations/{conversation.Id}")).StatusCode);
+        var messagesResponse = await _client.GetAsync($"/api/v1/conversations/{conversation.Id}/messages");
+        Assert.Equal(HttpStatusCode.OK, messagesResponse.StatusCode);
+        Assert.Equal(2, (await messagesResponse.Content.ReadFromJsonAsync<ConversationMessageResponse[]>(JsonOptions))!.Length);
+
+        using var verifyScope = _factory.Services.CreateScope();
+        var verifyContext = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.True(await verifyContext.Trips.AnyAsync(item => item.Id == tripId));
+        Assert.True(await verifyContext.AiConversations.AnyAsync(item => item.Id == conversation.Id));
+        Assert.Equal(2, await verifyContext.AiConversationMessages
+            .CountAsync(item => item.ConversationId == conversation.Id));
+    }
+
+    [Fact]
+    public async Task ConversationCanOnlyBeCreatedForAnOwnedTrip()
+    {
+        var ownerId = await RegisterAsync("conversation-owner@example.com");
+        var otherId = await RegisterAsync("conversation-other@example.com");
+        await LoginAsync("conversation-owner@example.com");
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await _client.PostAsJsonAsync("/api/v1/conversations", new { title = "Missing trip" })).StatusCode);
+        int otherTripId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var trip = AddTrip(otherId, DateOnly.FromDateTime(DateTime.UtcNow));
+            context.Trips.Add(trip);
+            await context.SaveChangesAsync();
+            otherTripId = trip.Id;
+        }
+
+        var response = await _client.PostAsJsonAsync(
+            "/api/v1/conversations",
+            new { title = "Cross-user trip", tripId = otherTripId });
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+
+        using var verifyScope = _factory.Services.CreateScope();
+        var verifyContext = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.False(await verifyContext.AiConversations.AnyAsync(item => item.UserId == ownerId));
+    }
+
+    [Fact]
+    public async Task DeletingAnAccountAlsoDeletesItsTripsConversationsAndMessages()
+    {
+        var userId = await RegisterAsync("delete-account@example.com");
+        await LoginAsync("delete-account@example.com");
+        var conversation = await CreateConversationAsync("Account cleanup");
+        Assert.Equal(HttpStatusCode.Created,
+            (await _client.PostAsJsonAsync(
+                $"/api/v1/conversations/{conversation.Id}/messages",
+                new { content = "This is removed with the account." })).StatusCode);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await userManager.FindByIdAsync(userId.ToString());
+            Assert.NotNull(user);
+            var deleted = await userManager.DeleteAsync(user);
+            Assert.True(deleted.Succeeded, string.Join(";", deleted.Errors.Select(error => error.Code)));
+        }
+
+        using var verifyScope = _factory.Services.CreateScope();
+        var verifyContext = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.False(await verifyContext.Users.AnyAsync(user => user.Id == userId));
+        Assert.False(await verifyContext.Trips.AnyAsync(trip => trip.UserId == userId));
+        Assert.False(await verifyContext.AiConversations.AnyAsync(item => item.UserId == userId));
+        Assert.False(await verifyContext.AiConversationMessages.AnyAsync(item => item.ConversationId == conversation.Id));
     }
 
     [Fact]
@@ -575,7 +702,9 @@ public sealed class ChatbotLifecycleAndAuthorizationTests : IDisposable
             confirmPassword = "SkyMatePass1"
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return (await response.Content.ReadFromJsonAsync<RegisterResponse>(JsonOptions))!.Id;
+        var id = (await response.Content.ReadFromJsonAsync<RegisterResponse>(JsonOptions))!.Id;
+        _registeredUserIds[email] = id;
+        return id;
     }
 
     private async Task LoginAsync(string email)
@@ -588,19 +717,25 @@ public sealed class ChatbotLifecycleAndAuthorizationTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var login = (await response.Content.ReadFromJsonAsync<LoginResponse>(JsonOptions))!;
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", login.AccessToken);
+        _currentUserId = _registeredUserIds.GetValueOrDefault(email);
     }
 
-    private async Task<ConversationResponse> CreateConversationAsync(string title)
+    private async Task<ConversationResponse> CreateConversationAsync(string title, int? tripId = null)
     {
-        var response = await _client.PostAsJsonAsync("/api/v1/conversations", new { title });
+        Assert.NotNull(_currentUserId);
+        if (tripId is null)
+        {
+            using var scope = _factory.Services.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var trip = AddTrip(_currentUserId.Value, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(1));
+            context.Trips.Add(trip);
+            await context.SaveChangesAsync();
+            tripId = trip.Id;
+        }
+
+        var response = await _client.PostAsJsonAsync("/api/v1/conversations", new { title, tripId });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<ConversationResponse>(JsonOptions))!;
-    }
-
-    private async Task<int> GetProviderRequestCountAsync()
-    {
-        using var scope = _factory.Services.CreateScope();
-        return scope.ServiceProvider.GetRequiredService<TestAssistantLlmClient>().Requests.Count;
     }
 
     private static Trip AddTrip(int userId, DateOnly startDate) => new()

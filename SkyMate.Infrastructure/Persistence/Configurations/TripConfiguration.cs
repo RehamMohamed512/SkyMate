@@ -20,6 +20,8 @@ public sealed class TripConfiguration : IEntityTypeConfiguration<Trip>
             table.HasCheckConstraint("CK_Trips_Pace_Values", "[Pace] IN ('Relaxed', 'Balanced', 'Packed')");
         });
         builder.HasKey(trip => trip.Id);
+        // Supports a composite conversation FK that guarantees the trip and conversation owner match.
+        builder.HasAlternateKey(trip => new { trip.Id, trip.UserId });
         builder.Property(trip => trip.Destination).HasMaxLength(200).IsRequired();
         builder.Property(trip => trip.Budget).HasPrecision(18, 2);
         builder.Property(trip => trip.Currency).HasColumnType("char(3)").HasMaxLength(3).HasDefaultValue("USD").IsRequired();
